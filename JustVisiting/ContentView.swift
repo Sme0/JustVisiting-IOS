@@ -1,11 +1,11 @@
 import SwiftUI
 import CoreLocation
 
-// Root view. Just a TabView that switches between the map and the stats screen.
-// Location permission is requested here on first launch so the prompt appears
-// immediately rather than only when the user taps "Start Tracking".
+// Root view. Switches between the normal TabView and a minimal driving UI when
+// CarPlay is connected.
 struct ContentView: View {
     @Environment(LocationManager.self) private var locationManager
+    @Environment(CarPlayDetector.self) private var carPlayDetector
     @AppStorage("appearance") private var appearance = 0
 
     private var preferredColorScheme: ColorScheme? {
@@ -17,26 +17,33 @@ struct ContentView: View {
     }
 
     var body: some View {
-        TabView {
-            MapView()
-                .tabItem {
-                    Label("Map", systemImage: "map")
-                }
+        ZStack {
+            if carPlayDetector.isConnected {
+                DrivingModeView()
+                    .transition(.opacity)
+            } else {
+                TabView {
+                    MapView()
+                        .tabItem {
+                            Label("Map", systemImage: "map")
+                        }
 
-            StatsView()
-                .tabItem {
-                    Label("Stats", systemImage: "chart.bar.fill")
-                }
+                    StatsView()
+                        .tabItem {
+                            Label("Stats", systemImage: "chart.bar.fill")
+                        }
 
-            SettingsView()
-                .tabItem {
-                    Label("Settings", systemImage: "gearshape.fill")
+                    SettingsView()
+                        .tabItem {
+                            Label("Settings", systemImage: "gearshape.fill")
+                        }
                 }
+                .preferredColorScheme(preferredColorScheme)
+                .transition(.opacity)
+            }
         }
-        .preferredColorScheme(preferredColorScheme)
+        .animation(.easeInOut(duration: 0.4), value: carPlayDetector.isConnected)
         .onAppear {
-            // Only prompt if the user hasn't answered yet — avoids re-prompting on
-            // subsequent app launches or scene re-activations.
             if locationManager.authorizationStatus == .notDetermined {
                 locationManager.requestPermission()
             }

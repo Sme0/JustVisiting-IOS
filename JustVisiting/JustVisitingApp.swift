@@ -7,6 +7,7 @@ struct JustVisitingApp: App {
     // @State on a class works with @Observable — SwiftUI holds a reference and won't recreate them.
     @State private var placesManager = PlacesManager()
     @State private var locationManager = LocationManager()
+    @State private var carPlayDetector = CarPlayDetector()
 
     var body: some Scene {
         WindowGroup {
@@ -15,6 +16,7 @@ struct JustVisitingApp: App {
                 // with @Environment(PlacesManager.self) without prop-drilling through every layer.
                 .environment(placesManager)
                 .environment(locationManager)
+                .environment(carPlayDetector)
                 .onAppear {
                     // Wire the location pipeline: GPS update → visit check.
                     // Done here rather than inside either manager to keep them decoupled —

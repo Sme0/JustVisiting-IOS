@@ -3,8 +3,9 @@ import CoreLocation
 import UserNotifications
 
 struct SettingsView: View {
-    @Environment(LocationManager.self) private var locationManager
-    @Environment(PlacesManager.self)   private var placesManager
+    @Environment(LocationManager.self)   private var locationManager
+    @Environment(PlacesManager.self)     private var placesManager
+    @Environment(CarPlayDetector.self)   private var carPlayDetector
 
     @AppStorage("filter.showCities")     private var showCities          = true
     @AppStorage("filter.showTowns")      private var showTowns           = true
@@ -96,6 +97,14 @@ struct SettingsView: View {
                         Label("Permissions", systemImage: "hand.raised")
                     }
                 }
+
+                #if DEBUG
+                Section("Debug") {
+                    Toggle(isOn: Bindable(carPlayDetector).debugForceConnected) {
+                        Label("Simulate CarPlay", systemImage: "car")
+                    }
+                }
+                #endif
 
                 Section {
                     Button(role: .destructive) {
