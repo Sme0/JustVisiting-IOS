@@ -55,9 +55,17 @@ final class PlacesManager {
 
     // MARK: - Loading places
 
-    // Tries the on-disk cache first; falls back to a live Overpass fetch if unavailable.
+    // 1. On-disk cache (written after the first Overpass fetch or a manual refresh).
+    // 2. Bundled places.json shipped with the app — instant on first launch, no network needed.
+    // 3. Live Overpass fetch — only if both of the above are somehow missing.
     func loadPlaces() async {
         if let data = try? Data(contentsOf: placesURL),
+           let decoded = try? JSONDecoder().decode([Place].self, from: data) {
+            places = decoded
+            return
+        }
+        if let url = Bundle.main.url(forResource: "places", withExtension: "json"),
+           let data = try? Data(contentsOf: url),
            let decoded = try? JSONDecoder().decode([Place].self, from: data) {
             places = decoded
             return
