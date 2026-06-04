@@ -13,6 +13,7 @@ struct MapView: View {
     @AppStorage("filter.showVillages") private var showVillages = true
     @AppStorage("filter.showHamlets")  private var showHamlets  = true
     @AppStorage("filter.localOnly")    private var localOnly    = false
+    @AppStorage("map.mapType")         private var mapType      = 0
 
     private var enabledTypes: Set<PlaceType> {
         var types = Set<PlaceType>()
@@ -46,6 +47,7 @@ struct MapView: View {
                 visitedIds: placesManager.visitedIds,
                 enabledTypes: enabledTypes,
                 localCenter: localOnly ? locationManager.lastLocation : nil,
+                mapType: mapType,
                 selectedPlace: $selectedPlace,
                 userTrackingMode: $userTrackingMode
             )
@@ -156,6 +158,7 @@ struct ClusteredMapView: UIViewRepresentable {
     var visitedIds: Set<Int64>
     var enabledTypes: Set<PlaceType>
     var localCenter: CLLocation?
+    var mapType: Int
     @Binding var selectedPlace: Place?
     @Binding var userTrackingMode: MKUserTrackingMode
 
@@ -215,6 +218,21 @@ struct ClusteredMapView: UIViewRepresentable {
                 }
             }
             coordinator.loadedVisited = visitedIds
+
+            // On a mass reset, clustered/recycled views won't be reached by the loop above.
+            // Remove and re-add all on-map annotations so MapKit calls viewFor again with
+            // the freshly-cleared isVisited flags.
+            if visitedIds.isEmpty {
+                let all = Array(coordinator.annotationsOnMap.values)
+                mapView.removeAnnotations(all)
+                mapView.addAnnotations(all)
+            }
+        }
+
+        // Apply map style change.
+        let desiredMapType = MKMapType(rawValue: UInt(mapType)) ?? .standard
+        if mapView.mapType != desiredMapType {
+            mapView.mapType = desiredMapType
         }
 
         // Apply a recenter request from the location button.

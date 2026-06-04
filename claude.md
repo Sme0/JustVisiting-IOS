@@ -40,7 +40,17 @@ The app has two manager classes and a view layer. There is no backend — everyt
 
 ### View layer
 
-`ContentView` is a `TabView` (Map / Stats). `MapView` is the primary screen. Because the full place list can be ~60 k entries, `MapView.updateVisiblePlaces()` filters to the current camera region plus a 60 % buffer and caps at 400 annotations — this runs on every `onMapCameraChange` event.
+`ContentView` is a `TabView` with three tabs: Map, Stats, and Settings.
+
+`MapView` is the primary screen. It hosts `ClusteredMapView`, a `UIViewRepresentable` that wraps a native `MKMapView`. Using `UIViewRepresentable` is intentional: MapKit's built-in annotation clustering and view recycling scales to tens of thousands of markers far better than individual SwiftUI views would.
+
+**`ClusteredMapView.Coordinator`** owns annotation lifecycle:
+- `placesSortedByLat` — a lat-sorted index built once on load; `refreshAnnotations` binary-searches it to avoid scanning all ~60 k places for each viewport query.
+- `refreshAnnotations(on:)` — reconciles which `PlaceAnnotation` objects are on the map (viewport + 50 % buffer, capped at `maxAnnotations = 1500`). Debounced 350 ms via `DispatchWorkItem` so rapid pan/zoom doesn't fire it on every frame; called from `mapView(_:regionDidChangeAnimated:)`.
+- `allowedTypes(forLatitudeDelta:)` — zoom-level gating: only cities are shown at `latDelta ≥ 2°`; all four types appear below `0.1°`. This keeps annotation counts manageable before the cap is hit.
+- Cluster bubbles show `visited/total` when all enabled types are loaded for the current zoom; otherwise only the visited count is shown to avoid a misleading denominator.
+
+**`@AppStorage` filter keys** (`filter.showCities`, `filter.showTowns`, `filter.showVillages`, `filter.showHamlets`, `filter.localOnly`) are read by both `MapView` and `SettingsView` — changes in Settings are immediately reflected on the map.
 
 ### Adding new Swift files
 

@@ -52,16 +52,7 @@ struct StatsView: View {
                             }
                         }
 
-                        // Data management — lets the user pull fresh data from Overpass.
-                        Section {
-                            Button(role: .destructive) {
-                                Task { await placesManager.refreshPlaces() }
-                            } label: {
-                                Label("Refresh Place Data", systemImage: "arrow.clockwise")
-                            }
-                        } footer: {
-                            Text("Place data is sourced from OpenStreetMap and cached locally. Refresh if you think data is outdated.")
-                        }
+
                     }
                 }
             }

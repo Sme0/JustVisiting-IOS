@@ -161,6 +161,12 @@ final class PlacesManager {
         }
     }
 
+    // Clears all visit history from memory and disk.
+    func resetProgress() {
+        visitedIds = []
+        try? FileManager.default.removeItem(at: visitedURL)
+    }
+
     // Lets the user manually flip a place's visited status by tapping it on the map.
     func toggleVisited(_ place: Place) {
         if visitedIds.contains(place.id) {
