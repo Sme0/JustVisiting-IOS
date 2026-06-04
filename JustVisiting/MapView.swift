@@ -657,7 +657,7 @@ struct PlaceDetailSheet: View {
     }
 
     private func openInAppleMaps() {
-        let item = MKMapItem(placemark: MKPlacemark(coordinate: place.coordinate))
+        let item = MKMapItem(location: CLLocation(latitude: place.coordinate.latitude, longitude: place.coordinate.longitude), address: nil)
         item.name = place.name
         item.openInMaps(launchOptions: [MKLaunchOptionsDirectionsModeKey: MKLaunchOptionsDirectionsModeDriving])
     }

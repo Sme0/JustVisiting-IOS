@@ -113,7 +113,7 @@ final class PlacesManager {
                 guard let name = el.tags["name"],
                       let typeStr = el.tags["place"],
                       let type = PlaceType(rawValue: typeStr) else { return nil }
-                return Place(id: el.id, name: name, lat: el.lat, lon: el.lon, type: type)
+                return Place(id: el.id, name: name, lat: el.lat, lon: el.lon, type: type, county: "")
             }
 
             places = fetched

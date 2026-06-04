@@ -37,17 +37,6 @@ struct Place: Codable, Identifiable, Hashable {
     let type: PlaceType
     let county: String  // ONS county/unitary authority name; "" if outside UK boundaries
 
-    // decodeIfPresent so old cached JSON without the county field still decodes cleanly.
-    init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        id     = try c.decode(Int64.self,     forKey: .id)
-        name   = try c.decode(String.self,    forKey: .name)
-        lat    = try c.decode(Double.self,    forKey: .lat)
-        lon    = try c.decode(Double.self,    forKey: .lon)
-        type   = try c.decode(PlaceType.self, forKey: .type)
-        county = try c.decodeIfPresent(String.self, forKey: .county) ?? ""
-    }
-
     // Convenience wrappers so callers don't have to construct these manually.
     var coordinate: CLLocationCoordinate2D {
         CLLocationCoordinate2D(latitude: lat, longitude: lon)
@@ -61,6 +50,20 @@ struct Place: Codable, Identifiable, Hashable {
     // for the same node are always considered equal regardless of other fields.
     static func == (lhs: Place, rhs: Place) -> Bool { lhs.id == rhs.id }
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
+}
+
+// Custom decoder lives in an extension so Swift still generates the memberwise init.
+// decodeIfPresent for county handles old cached JSON that pre-dates the county field.
+extension Place {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id     = try c.decode(Int64.self,     forKey: .id)
+        name   = try c.decode(String.self,    forKey: .name)
+        lat    = try c.decode(Double.self,    forKey: .lat)
+        lon    = try c.decode(Double.self,    forKey: .lon)
+        type   = try c.decode(PlaceType.self, forKey: .type)
+        county = try c.decodeIfPresent(String.self, forKey: .county) ?? ""
+    }
 }
 
 // MARK: - Overpass API response shapes
