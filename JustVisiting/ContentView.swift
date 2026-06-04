@@ -6,6 +6,15 @@ import CoreLocation
 // immediately rather than only when the user taps "Start Tracking".
 struct ContentView: View {
     @Environment(LocationManager.self) private var locationManager
+    @AppStorage("appearance") private var appearance = 0
+
+    private var preferredColorScheme: ColorScheme? {
+        switch appearance {
+        case 1: return .light
+        case 2: return .dark
+        default: return nil
+        }
+    }
 
     var body: some View {
         TabView {
@@ -24,6 +33,7 @@ struct ContentView: View {
                     Label("Settings", systemImage: "gearshape.fill")
                 }
         }
+        .preferredColorScheme(preferredColorScheme)
         .onAppear {
             // Only prompt if the user hasn't answered yet — avoids re-prompting on
             // subsequent app launches or scene re-activations.

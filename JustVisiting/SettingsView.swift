@@ -11,12 +11,22 @@ struct SettingsView: View {
     @AppStorage("filter.showHamlets")  private var showHamlets  = true
     @AppStorage("filter.localOnly")    private var localOnly    = false
     @AppStorage("map.mapType")         private var mapType      = 0
+    @AppStorage("appearance")          private var appearance   = 0
 
     @State private var showingResetConfirmation = false
 
     var body: some View {
         NavigationStack {
             Form {
+                Section("Appearance") {
+                    Picker("Theme", selection: $appearance) {
+                        Label("System", systemImage: "circle.lefthalf.filled").tag(0)
+                        Label("Light",  systemImage: "sun.max").tag(1)
+                        Label("Dark",   systemImage: "moon").tag(2)
+                    }
+                    .pickerStyle(.navigationLink)
+                }
+
                 Section("Map Style") {
                     Picker("Map Type", selection: $mapType) {
                         Label("Standard",  systemImage: "map").tag(0)
