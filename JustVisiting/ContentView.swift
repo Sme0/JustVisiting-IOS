@@ -1,24 +1,35 @@
-//
-//  ContentView.swift
-//  JustVisiting
-//
-//  Created by Sam Tyler on 03/06/2026.
-//
-
 import SwiftUI
+import CoreLocation
 
+// Root view. Just a TabView that switches between the map and the stats screen.
+// Location permission is requested here on first launch so the prompt appears
+// immediately rather than only when the user taps "Start Tracking".
 struct ContentView: View {
-    var body: some View {
-        VStack {
-            Image(systemName: "globe")
-                .imageScale(.large)
-                .foregroundStyle(.tint)
-            Text("Hello, world!")
-        }
-        .padding()
-    }
-}
+    @Environment(LocationManager.self) private var locationManager
 
-#Preview {
-    ContentView()
+    var body: some View {
+        TabView {
+            MapView()
+                .tabItem {
+                    Label("Map", systemImage: "map")
+                }
+
+            StatsView()
+                .tabItem {
+                    Label("Stats", systemImage: "chart.bar.fill")
+                }
+
+            SettingsView()
+                .tabItem {
+                    Label("Settings", systemImage: "gearshape.fill")
+                }
+        }
+        .onAppear {
+            // Only prompt if the user hasn't answered yet — avoids re-prompting on
+            // subsequent app launches or scene re-activations.
+            if locationManager.authorizationStatus == .notDetermined {
+                locationManager.requestPermission()
+            }
+        }
+    }
 }
