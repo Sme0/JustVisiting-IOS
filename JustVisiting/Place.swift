@@ -35,6 +35,18 @@ struct Place: Codable, Identifiable, Hashable {
     let lat: Double
     let lon: Double
     let type: PlaceType
+    let county: String  // ONS county/unitary authority name; "" if outside UK boundaries
+
+    // decodeIfPresent so old cached JSON without the county field still decodes cleanly.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id     = try c.decode(Int64.self,     forKey: .id)
+        name   = try c.decode(String.self,    forKey: .name)
+        lat    = try c.decode(Double.self,    forKey: .lat)
+        lon    = try c.decode(Double.self,    forKey: .lon)
+        type   = try c.decode(PlaceType.self, forKey: .type)
+        county = try c.decodeIfPresent(String.self, forKey: .county) ?? ""
+    }
 
     // Convenience wrappers so callers don't have to construct these manually.
     var coordinate: CLLocationCoordinate2D {

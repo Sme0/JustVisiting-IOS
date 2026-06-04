@@ -52,6 +52,13 @@ struct StatsView: View {
                             }
                         }
 
+                        // One row per county/unitary authority, sorted alphabetically.
+                        Section("By County") {
+                            ForEach(placesManager.countyStats) { stat in
+                                CountyStatRow(stat: stat)
+                            }
+                        }
+
 
                     }
                 }
@@ -90,6 +97,26 @@ struct OverallProgressRow: View {
                 .tint(.green)
         }
         .padding(.vertical, 8)
+    }
+}
+
+// One row in the "By County" section — name, count, and a mini progress bar.
+struct CountyStatRow: View {
+    let stat: PlacesManager.CountyStat
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(stat.id)
+                Spacer()
+                Text("\(stat.visited) / \(stat.total)")
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+            }
+            ProgressView(value: stat.fraction)
+                .tint(.green)
+        }
+        .padding(.vertical, 4)
     }
 }
 

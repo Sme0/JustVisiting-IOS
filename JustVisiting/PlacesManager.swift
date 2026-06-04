@@ -211,6 +211,29 @@ final class PlacesManager {
         places.filter { $0.type == type }.count
     }
 
+    // MARK: - Per-county stats (used by StatsView)
+
+    struct CountyStat: Identifiable {
+        let id: String  // county name
+        let visited: Int
+        let total: Int
+        var fraction: Double { total > 0 ? Double(visited) / Double(total) : 0 }
+    }
+
+    var countyStats: [CountyStat] {
+        var totals:   [String: Int] = [:]
+        var visited:  [String: Int] = [:]
+        for place in places where !place.county.isEmpty {
+            totals[place.county, default: 0]  += 1
+            if visitedIds.contains(place.id) {
+                visited[place.county, default: 0] += 1
+            }
+        }
+        return totals.map { county, total in
+            CountyStat(id: county, visited: visited[county, default: 0], total: total)
+        }.sorted { $0.id < $1.id }
+    }
+
     // MARK: - Persistence
 
     // Loads visited IDs from disk. Called synchronously in init() so state is ready immediately.

@@ -601,12 +601,17 @@ struct PlaceDetailSheet: View {
 
     var body: some View {
         VStack(spacing: 16) {
-            VStack(spacing: 6) {
+            VStack(spacing: 4) {
                 Text(place.name)
                     .font(.title2)
                     .fontWeight(.bold)
                 Label(place.type.rawValue.capitalized, systemImage: place.type.icon)
                     .foregroundStyle(.secondary)
+                if !place.county.isEmpty {
+                    Text(place.county)
+                        .font(.subheadline)
+                        .foregroundStyle(.tertiary)
+                }
             }
             .padding(.top, 24)
 
