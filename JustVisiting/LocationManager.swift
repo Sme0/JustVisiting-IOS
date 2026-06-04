@@ -10,6 +10,7 @@ final class LocationManager: NSObject {
     var authorizationStatus: CLAuthorizationStatus = .notDetermined
     var lastLocation: CLLocation?
     var isTracking = false
+    var isAutoTracking = false
 
     // Called on every location update while tracking is active.
     // PlacesManager wires itself in here (via JustVisitingApp) to check for new visits.
@@ -43,6 +44,13 @@ final class LocationManager: NSObject {
         // Seed from CoreLocation's system cache so the "nearby only" filter works
         // immediately, even before the user starts active tracking.
         lastLocation = clManager.location
+
+        // If the user previously enabled background tracking, resume it automatically on launch.
+        if UserDefaults.standard.bool(forKey: "tracking.autoEnabled") {
+            isAutoTracking = true
+            clManager.distanceFilter = 100
+            clManager.startUpdatingLocation()
+        }
     }
 
     // Checks the actual compiled Info.plist at runtime rather than assuming the build
@@ -61,12 +69,33 @@ final class LocationManager: NSObject {
 
     func startTracking() {
         isTracking = true
+        clManager.distanceFilter = 30
         clManager.startUpdatingLocation()
     }
 
     func stopTracking() {
         isTracking = false
-        clManager.stopUpdatingLocation()
+        if isAutoTracking {
+            // Auto tracking is still on — drop back to the battery-saving filter but keep running.
+            clManager.distanceFilter = 100
+        } else {
+            clManager.stopUpdatingLocation()
+        }
+    }
+
+    func startAutoTracking() {
+        isAutoTracking = true
+        if !isTracking {
+            clManager.distanceFilter = 100
+            clManager.startUpdatingLocation()
+        }
+    }
+
+    func stopAutoTracking() {
+        isAutoTracking = false
+        if !isTracking {
+            clManager.stopUpdatingLocation()
+        }
     }
 }
 

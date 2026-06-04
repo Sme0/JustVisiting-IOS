@@ -1,6 +1,8 @@
 import Foundation
 import CoreLocation
 import Observation
+import UIKit
+import UserNotifications
 
 // Central store for all place data and visit history.
 // Handles fetching from the Overpass API, caching to disk, and real-time visit detection.
@@ -158,7 +160,21 @@ final class PlacesManager {
         if !newVisits.isEmpty {
             recentlyVisited = newVisits   // triggers the visit banner in MapView
             saveVisited()
+            sendBackgroundNotification(for: newVisits)
         }
+    }
+
+    private func sendBackgroundNotification(for places: [Place]) {
+        guard UIApplication.shared.applicationState != .active else { return }
+        let content = UNMutableNotificationContent()
+        content.title = places.count == 1 ? "New place visited!" : "New places visited!"
+        content.body = places.count == 1
+            ? "You visited \(places[0].name)"
+            : "You visited \(places[0].name) and \(places.count - 1) more"
+        content.sound = .default
+        UNUserNotificationCenter.current().add(
+            UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
+        )
     }
 
     // Clears all visit history from memory and disk.

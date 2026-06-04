@@ -1,23 +1,44 @@
 import SwiftUI
 import CoreLocation
+import UserNotifications
 
 struct SettingsView: View {
     @Environment(LocationManager.self) private var locationManager
     @Environment(PlacesManager.self)   private var placesManager
 
-    @AppStorage("filter.showCities")   private var showCities   = true
-    @AppStorage("filter.showTowns")    private var showTowns    = true
-    @AppStorage("filter.showVillages") private var showVillages = true
-    @AppStorage("filter.showHamlets")  private var showHamlets  = true
-    @AppStorage("filter.localOnly")    private var localOnly    = false
-    @AppStorage("map.mapType")         private var mapType      = 0
-    @AppStorage("appearance")          private var appearance   = 0
+    @AppStorage("filter.showCities")     private var showCities          = true
+    @AppStorage("filter.showTowns")      private var showTowns           = true
+    @AppStorage("filter.showVillages")   private var showVillages        = true
+    @AppStorage("filter.showHamlets")    private var showHamlets         = true
+    @AppStorage("filter.localOnly")      private var localOnly           = false
+    @AppStorage("map.mapType")           private var mapType             = 0
+    @AppStorage("appearance")            private var appearance          = 0
+    @AppStorage("tracking.autoEnabled") private var autoTrackingEnabled = false
 
     @State private var showingResetConfirmation = false
 
     var body: some View {
         NavigationStack {
             Form {
+                Section {
+                    Toggle(isOn: $autoTrackingEnabled) {
+                        Label("Background Visit Detection", systemImage: "location.fill.viewfinder")
+                    }
+                    .onChange(of: autoTrackingEnabled) { _, enabled in
+                        if enabled {
+                            locationManager.startAutoTracking()
+                            Task {
+                                try? await UNUserNotificationCenter.current()
+                                    .requestAuthorization(options: [.alert, .sound])
+                            }
+                        } else {
+                            locationManager.stopAutoTracking()
+                        }
+                    }
+                } footer: {
+                    Text("Keeps location running in the background and sends a notification when you visit a new place. Uses more battery than manual tracking.")
+                }
+
                 Section("Appearance") {
                     Picker("Theme", selection: $appearance) {
                         Label("System", systemImage: "circle.lefthalf.filled").tag(0)
@@ -64,6 +85,16 @@ struct SettingsView: View {
                     }
                 } footer: {
                     Text("Place data is sourced from OpenStreetMap and cached locally. Refresh if you think data is outdated.")
+                }
+
+                Section {
+                    Button {
+                        if let url = URL(string: UIApplication.openSettingsURLString) {
+                            UIApplication.shared.open(url)
+                        }
+                    } label: {
+                        Label("Permissions", systemImage: "hand.raised")
+                    }
                 }
 
                 Section {

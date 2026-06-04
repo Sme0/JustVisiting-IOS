@@ -208,14 +208,21 @@ struct ClusteredMapView: UIViewRepresentable {
             // Visited set changed (manual toggle or a new GPS visit): recolour only the
             // affected markers that are currently on the map.
             let changed = coordinator.loadedVisited.symmetricDifference(visitedIds)
+            var toRefresh: [PlaceAnnotation] = []
             for id in changed {
                 guard let annotation = coordinator.annotationsOnMap[id] else { continue }
                 annotation.isVisited = visitedIds.contains(id)
-                // Only on-screen, non-clustered markers have a live view to update;
-                // the rest pick up the right colour when next dequeued.
                 if let view = mapView.view(for: annotation) as? MKMarkerAnnotationView {
                     view.markerTintColor = annotation.isVisited ? .systemGreen : .systemRed
+                } else {
+                    // View isn't live (clustered or off-screen) — remove and re-add so
+                    // MapKit calls viewFor again with the updated isVisited state.
+                    toRefresh.append(annotation)
                 }
+            }
+            if !toRefresh.isEmpty {
+                mapView.removeAnnotations(toRefresh)
+                mapView.addAnnotations(toRefresh)
             }
             coordinator.loadedVisited = visitedIds
 
@@ -588,10 +595,12 @@ struct PlaceDetailSheet: View {
     @Environment(PlacesManager.self) private var placesManager
     @Environment(\.dismiss) private var dismiss
 
+    @State private var showingDirectionsDialog = false
+
     var isVisited: Bool { placesManager.isVisited(place) }
 
     var body: some View {
-        VStack(spacing: 24) {
+        VStack(spacing: 16) {
             VStack(spacing: 6) {
                 Text(place.name)
                     .font(.title2)
@@ -618,10 +627,40 @@ struct PlaceDetailSheet: View {
             }
             .padding(.horizontal)
 
+            Button {
+                showingDirectionsDialog = true
+            } label: {
+                Label("Get Directions", systemImage: "arrow.triangle.turn.up.right.circle")
+                    .frame(maxWidth: .infinity)
+                    .padding()
+                    .background(Color.blue)
+                    .foregroundStyle(.white)
+                    .fontWeight(.semibold)
+                    .clipShape(RoundedRectangle(cornerRadius: 14))
+            }
+            .padding(.horizontal)
+
             Spacer()
         }
-        // Small sheet — just enough room for the name and one button.
-        .presentationDetents([.fraction(0.28)])
+        .presentationDetents([.fraction(0.38)])
         .presentationDragIndicator(.visible)
+        .confirmationDialog("Get Directions to \(place.name)", isPresented: $showingDirectionsDialog, titleVisibility: .visible) {
+            Button("Apple Maps") { openInAppleMaps() }
+            Button("Google Maps") { openInApp(scheme: "comgooglemaps://?daddr=\(place.coordinate.latitude),\(place.coordinate.longitude)&directionsmode=driving") }
+            Button("Waze") { openInApp(scheme: "waze://?ll=\(place.coordinate.latitude),\(place.coordinate.longitude)&navigate=yes") }
+        }
+    }
+
+    private func openInAppleMaps() {
+        let item = MKMapItem(placemark: MKPlacemark(coordinate: place.coordinate))
+        item.name = place.name
+        item.openInMaps(launchOptions: [MKLaunchOptionsDirectionsModeKey: MKLaunchOptionsDirectionsModeDriving])
+    }
+
+    private func openInApp(scheme: String) {
+        guard let url = URL(string: scheme) else { return }
+        UIApplication.shared.open(url) { success in
+            if !success { openInAppleMaps() }
+        }
     }
 }
