@@ -25,17 +25,39 @@ final class PlacesManager {
     // re-visited after being un-marked (array equality would suppress the notification).
     private(set) var visitEventId: UUID = UUID()
 
-    // Paths to the two JSON files in the app's Documents directory.
-    private let placesURL: URL   // cached Overpass response — rebuilt if missing or on refresh
-    private let visitedURL: URL  // persisted set of visited OSM IDs
+    // The tracking session in progress, or the most recently completed one.
+    // Nil only before the first session ever starts.
+    private(set) var currentSession: Session?
+
+    // All completed sessions that had at least one visit, newest first.
+    private(set) var sessionHistory: [Session] = []
+
+    func startSession() {
+        currentSession = Session()
+    }
+
+    func endSession() {
+        currentSession?.end()
+        if let session = currentSession, !session.places.isEmpty {
+            sessionHistory.insert(session, at: 0)
+            saveSessions()
+        }
+    }
+
+    // Paths to the JSON files in the app's Documents directory.
+    private let placesURL: URL    // cached Overpass response — rebuilt if missing or on refresh
+    private let visitedURL: URL   // persisted set of visited OSM IDs
+    private let sessionsURL: URL  // completed session history
 
     init() {
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         placesURL = docs.appendingPathComponent("places.json")
         visitedURL = docs.appendingPathComponent("visited.json")
+        sessionsURL = docs.appendingPathComponent("sessions.json")
 
         // Load visited IDs synchronously so the map is correct the instant it appears.
         loadVisited()
+        loadSessions()
 
         // Places are loaded async because the cache read (or network fetch) can take a moment.
         Task { await loadPlaces() }
@@ -170,6 +192,7 @@ final class PlacesManager {
         if !newVisits.isEmpty {
             recentlyVisited = newVisits
             visitEventId = UUID()         // always unique → onChange fires even for repeat visits
+            currentSession?.record(newVisits)
             saveVisited()
             sendBackgroundNotification(for: newVisits)
         }
@@ -188,10 +211,18 @@ final class PlacesManager {
         )
     }
 
-    // Clears all visit history from memory and disk.
-    func resetProgress() {
+    // Marks all places as unvisited; session history is kept.
+    func resetVisitedPlaces() {
         visitedIds = []
         try? FileManager.default.removeItem(at: visitedURL)
+    }
+
+    // Clears visited places and all session history.
+    func resetProgress() {
+        visitedIds = []
+        sessionHistory = []
+        try? FileManager.default.removeItem(at: visitedURL)
+        try? FileManager.default.removeItem(at: sessionsURL)
     }
 
     // Lets the user manually flip a place's visited status by tapping it on the map.
@@ -250,6 +281,22 @@ final class PlacesManager {
     private func saveVisited() {
         if let encoded = try? JSONEncoder().encode(visitedIds) {
             try? encoded.write(to: visitedURL)
+        }
+    }
+
+    private func loadSessions() {
+        guard let data = try? Data(contentsOf: sessionsURL),
+              let decoded = try? JSONDecoder().decode([Session].self, from: data) else { return }
+        sessionHistory = decoded
+    }
+
+    private func saveSessions() {
+        let url = sessionsURL
+        let history = sessionHistory
+        Task.detached(priority: .background) {
+            if let encoded = try? JSONEncoder().encode(history) {
+                try? encoded.write(to: url)
+            }
         }
     }
 }

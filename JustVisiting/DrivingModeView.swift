@@ -7,7 +7,6 @@ struct DrivingModeView: View {
 
     @State private var showingVisitBanner = false
     @State private var visitBannerName = ""
-    @State private var sessionVisits: [Place] = []
 
     var body: some View {
         ZStack {
@@ -47,7 +46,7 @@ struct DrivingModeView: View {
 
                 // Session visits
                 VStack(alignment: .leading, spacing: 14) {
-                    if sessionVisits.isEmpty {
+                    if placesManager.currentSession?.places.isEmpty ?? true {
                         Text(locationManager.isTracking
                              ? "No places visited yet this session"
                              : "Start tracking to record visits")
@@ -55,7 +54,7 @@ struct DrivingModeView: View {
                             .foregroundStyle(.tertiary)
                             .frame(maxWidth: .infinity, alignment: .center)
                     } else {
-                        ForEach(sessionVisits) { place in
+                        ForEach(Array((placesManager.currentSession?.places ?? []).prefix(3))) { place in
                             HStack(spacing: 12) {
                                 Image(systemName: "checkmark.circle.fill")
                                     .foregroundStyle(.green)
@@ -101,19 +100,8 @@ struct DrivingModeView: View {
             }
         }
         .preferredColorScheme(.dark)
-        .onAppear {
-            if !locationManager.isTracking { sessionVisits = [] }
-        }
-        .onChange(of: locationManager.isTracking) { _, isTracking in
-            if isTracking { sessionVisits = [] }
-        }
         .onChange(of: placesManager.visitEventId) {
             guard !placesManager.recentlyVisited.isEmpty else { return }
-
-            for place in placesManager.recentlyVisited.reversed() {
-                sessionVisits.insert(place, at: 0)
-            }
-            sessionVisits = Array(sessionVisits.prefix(3))
 
             let first = placesManager.recentlyVisited[0]
             visitBannerName = placesManager.recentlyVisited.count == 1

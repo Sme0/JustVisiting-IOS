@@ -16,7 +16,8 @@ struct SettingsView: View {
     @AppStorage("appearance")            private var appearance          = 0
     @AppStorage("tracking.autoEnabled") private var autoTrackingEnabled = false
 
-    @State private var showingResetConfirmation = false
+    private enum ResetAction { case clearVisits, allData }
+    @State private var pendingReset: ResetAction?
 
     var body: some View {
         NavigationStack {
@@ -108,47 +109,77 @@ struct SettingsView: View {
 
                 Section {
                     Button(role: .destructive) {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            showingResetConfirmation = true
-                        }
+                        withAnimation(.easeInOut(duration: 0.2)) { pendingReset = .clearVisits }
                     } label: {
-                        Label("Reset All Progress", systemImage: "trash")
+                        Label("Clear Visited Places", systemImage: "mappin.slash")
                     }
                 } footer: {
-                    Text("Permanently clears all visited places. This cannot be undone.")
+                    Text("Marks all places as unvisited. Your session history is kept.")
+                }
+
+                Section {
+                    Button(role: .destructive) {
+                        withAnimation(.easeInOut(duration: 0.2)) { pendingReset = .allData }
+                    } label: {
+                        Label("Reset All Data", systemImage: "trash")
+                    }
+                } footer: {
+                    Text("Permanently clears all visited places and session history. This cannot be undone.")
                 }
             }
             .navigationTitle("Settings")
             .overlay {
-                if showingResetConfirmation {
+                if pendingReset != nil {
                     Color.black.opacity(0.4)
                         .ignoresSafeArea()
                         .transition(.opacity)
                         .onTapGesture {
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                showingResetConfirmation = false
-                            }
+                            withAnimation(.easeInOut(duration: 0.2)) { pendingReset = nil }
                         }
 
-                    ResetConfirmationCard(visitedCount: placesManager.visitedCount) {
-                        placesManager.resetProgress()
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            showingResetConfirmation = false
-                        }
-                    } onCancel: {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            showingResetConfirmation = false
-                        }
-                    }
-                    .transition(.scale(scale: 0.92).combined(with: .opacity))
+                    resetCard
+                        .transition(.scale(scale: 0.92).combined(with: .opacity))
                 }
             }
+        }
+    }
+
+    @ViewBuilder
+    private var resetCard: some View {
+        let n = placesManager.visitedCount
+        switch pendingReset {
+        case .clearVisits:
+            ResetConfirmationCard(
+                title: "Clear Visited Places?",
+                message: "This will mark all \(n) \(n == 1 ? "place" : "places") as unvisited. Your session history will be kept.",
+                confirmLabel: "Clear Visited Places"
+            ) {
+                placesManager.resetVisitedPlaces()
+                withAnimation(.easeInOut(duration: 0.2)) { pendingReset = nil }
+            } onCancel: {
+                withAnimation(.easeInOut(duration: 0.2)) { pendingReset = nil }
+            }
+        case .allData:
+            ResetConfirmationCard(
+                title: "Reset All Data?",
+                message: "This will permanently clear your \(n) visited \(n == 1 ? "place" : "places") and all session history. This cannot be undone.",
+                confirmLabel: "Reset All Data"
+            ) {
+                placesManager.resetProgress()
+                withAnimation(.easeInOut(duration: 0.2)) { pendingReset = nil }
+            } onCancel: {
+                withAnimation(.easeInOut(duration: 0.2)) { pendingReset = nil }
+            }
+        case nil:
+            EmptyView()
         }
     }
 }
 
 struct ResetConfirmationCard: View {
-    let visitedCount: Int
+    let title: String
+    let message: String
+    let confirmLabel: String
     let onConfirm: () -> Void
     let onCancel: () -> Void
 
@@ -160,10 +191,10 @@ struct ResetConfirmationCard: View {
                 .shadow(color: .red.opacity(0.3), radius: 8, y: 4)
 
             VStack(spacing: 8) {
-                Text("Reset All Progress?")
+                Text(title)
                     .font(.title3)
                     .fontWeight(.bold)
-                Text("This will permanently clear your entire visit history — \(visitedCount) \(visitedCount == 1 ? "place" : "places"). This cannot be undone.")
+                Text(message)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
@@ -172,7 +203,7 @@ struct ResetConfirmationCard: View {
 
             VStack(spacing: 10) {
                 Button(action: onConfirm) {
-                    Text("Reset Progress")
+                    Text(confirmLabel)
                         .fontWeight(.semibold)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 15)

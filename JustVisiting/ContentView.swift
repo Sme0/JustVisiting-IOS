@@ -5,8 +5,10 @@ import CoreLocation
 // CarPlay is connected.
 struct ContentView: View {
     @Environment(LocationManager.self) private var locationManager
+    @Environment(PlacesManager.self) private var placesManager
     @Environment(CarPlayDetector.self) private var carPlayDetector
     @AppStorage("appearance") private var appearance = 0
+    @State private var completedSession: Session?
 
     private var preferredColorScheme: ColorScheme? {
         switch appearance {
@@ -32,6 +34,11 @@ struct ContentView: View {
                         StatsView()
                             .tabItem {
                                 Label("Stats", systemImage: "chart.bar.fill")
+                            }
+
+                        SessionsHistoryView()
+                            .tabItem {
+                                Label("History", systemImage: "calendar")
                             }
 
                         SettingsView()
@@ -70,6 +77,19 @@ struct ContentView: View {
             if locationManager.authorizationStatus == .notDetermined {
                 locationManager.requestPermission()
             }
+        }
+        .onChange(of: locationManager.isTracking) { _, isTracking in
+            if isTracking {
+                placesManager.startSession()
+            } else {
+                placesManager.endSession()
+                if let session = placesManager.currentSession, !session.places.isEmpty {
+                    completedSession = session
+                }
+            }
+        }
+        .sheet(item: $completedSession) { session in
+            SessionSummaryView(session: session, isNew: true)
         }
     }
 }
