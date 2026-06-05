@@ -87,13 +87,11 @@ struct DrivingModeView: View {
                 }
 
                 VStack(spacing: 10) {
-                    #if DEBUG
                     Button("Exit Driving Mode") {
-                        carPlayDetector.debugForceConnected = false
+                        carPlayDetector.userDismissedDrivingMode = true
                     }
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
-                    #endif
 
                     Text("\(placesManager.visitedIds.count) places visited total")
                         .font(.caption)
@@ -109,7 +107,7 @@ struct DrivingModeView: View {
         .onChange(of: locationManager.isTracking) { _, isTracking in
             if isTracking { sessionVisits = [] }
         }
-        .onChange(of: placesManager.recentlyVisited) {
+        .onChange(of: placesManager.visitEventId) {
             guard !placesManager.recentlyVisited.isEmpty else { return }
 
             for place in placesManager.recentlyVisited.reversed() {

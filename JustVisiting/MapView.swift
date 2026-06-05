@@ -118,7 +118,9 @@ struct MapView: View {
         }
 
         // Show the visit banner whenever PlacesManager reports new visits.
-        .onChange(of: placesManager.recentlyVisited) {
+        // Keyed to visitEventId (a UUID) rather than recentlyVisited array contents so the
+        // banner fires even when the same place is re-visited after being un-marked.
+        .onChange(of: placesManager.visitEventId) {
             guard let first = placesManager.recentlyVisited.first else { return }
             // Condense multiple simultaneous visits into a single message.
             newVisitName = placesManager.recentlyVisited.count == 1
@@ -246,6 +248,12 @@ struct ClusteredMapView: UIViewRepresentable {
         if mapView.userTrackingMode != userTrackingMode {
             mapView.setUserTrackingMode(userTrackingMode, animated: true)
         }
+
+        // Remove the visit-radius circle when the detail sheet is dismissed.
+        if selectedPlace == nil, let circle = coordinator.radiusOverlay {
+            mapView.removeOverlay(circle)
+            coordinator.radiusOverlay = nil
+        }
     }
 
     final class Coordinator: NSObject, MKMapViewDelegate {
@@ -258,6 +266,7 @@ struct ClusteredMapView: UIViewRepresentable {
         var loadedEnabledTypes: Set<PlaceType> = []
         var loadedLocalCenter: CLLocation?
         private var pendingRefresh: DispatchWorkItem?
+        var radiusOverlay: MKCircle?
 
         // Hard ceiling on simultaneous annotations. Highest-ranked types are kept when trimming.
         static let maxAnnotations = 1500
@@ -468,11 +477,25 @@ struct ClusteredMapView: UIViewRepresentable {
                 return
             }
 
-            // Tapping a single place opens the detail sheet.
-            if let place = (view.annotation as? PlaceAnnotation)?.place {
-                parent.selectedPlace = place
+            // Tapping a single place shows a radius circle and opens the detail sheet.
+            if let annotation = view.annotation as? PlaceAnnotation {
+                if let existing = radiusOverlay { mapView.removeOverlay(existing) }
+                let circle = MKCircle(center: annotation.place.coordinate,
+                                      radius: annotation.place.type.radiusMeters)
+                radiusOverlay = circle
+                mapView.addOverlay(circle, level: .aboveRoads)
+                parent.selectedPlace = annotation.place
                 mapView.deselectAnnotation(view.annotation, animated: false)
             }
+        }
+
+        func mapView(_ mapView: MKMapView, rendererFor overlay: MKOverlay) -> MKOverlayRenderer {
+            guard let circle = overlay as? MKCircle else { return MKOverlayRenderer(overlay: overlay) }
+            let renderer = MKCircleRenderer(circle: circle)
+            renderer.fillColor = UIColor.systemGray.withAlphaComponent(0.12)
+            renderer.strokeColor = UIColor.systemGray.withAlphaComponent(0.55)
+            renderer.lineWidth = 1.5
+            return renderer
         }
 
         func mapView(_ mapView: MKMapView, didChange mode: MKUserTrackingMode, animated: Bool) {

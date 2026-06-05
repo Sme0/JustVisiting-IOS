@@ -5,6 +5,10 @@ import Observation
 final class CarPlayDetector: NSObject {
     private var hardwareConnected = false
 
+    // Set when the user explicitly dismisses driving mode while CarPlay is still connected.
+    // Cleared automatically when CarPlay disconnects so the next connection auto-shows it.
+    var userDismissedDrivingMode = false
+
     #if DEBUG
     var debugForceConnected = false
     #endif
@@ -15,6 +19,11 @@ final class CarPlayDetector: NSObject {
         #else
         hardwareConnected
         #endif
+    }
+
+    // True when CarPlay is connected AND the user hasn't manually exited driving mode.
+    var shouldShowDrivingMode: Bool {
+        isConnected && !userDismissedDrivingMode
     }
 
     override init() {
@@ -38,6 +47,10 @@ final class CarPlayDetector: NSObject {
         let connected = Self.checkConnected()
         Task { @MainActor in
             self.hardwareConnected = connected
+            // Reset dismissal when CarPlay disconnects so the next connection auto-shows driving mode.
+            if !connected {
+                self.userDismissedDrivingMode = false
+            }
         }
     }
 }

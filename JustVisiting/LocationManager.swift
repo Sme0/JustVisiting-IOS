@@ -1,5 +1,8 @@
 import CoreLocation
 import Observation
+import os
+
+private let locationLog = Logger(subsystem: "JustVisiting", category: "location")
 
 // Wraps CLLocationManager and exposes a clean Observable interface to the rest of the app.
 // The class is @Observable so SwiftUI views automatically re-render when its properties change.
@@ -111,6 +114,10 @@ extension LocationManager: CLLocationManagerDelegate {
         guard let location = locations.last else { return }
         Task { @MainActor in
             self.lastLocation = location
+            // Diagnostic: confirms fixes are arriving AND that the visit pipeline is wired.
+            // If "wired=false" ever appears here, onLocationUpdate was never set and no
+            // visit would register no matter how good the GPS fix is.
+            locationLog.info("fix lat=\(location.coordinate.latitude) lon=\(location.coordinate.longitude) acc=\(location.horizontalAccuracy) wired=\(self.onLocationUpdate != nil)")
             self.onLocationUpdate?(location)  // triggers PlacesManager.checkLocation(_:)
         }
     }

@@ -20,8 +20,10 @@ final class PlacesManager {
     var loadError: String?
 
     // Set when a location update triggers new visits; observed by MapView to show the banner.
-    // Cleared by the banner after it dismisses itself.
     var recentlyVisited: [Place] = []
+    // Incremented on every new visit so onChange fires even when the same place is
+    // re-visited after being un-marked (array equality would suppress the notification).
+    private(set) var visitEventId: UUID = UUID()
 
     // Paths to the two JSON files in the app's Documents directory.
     private let placesURL: URL   // cached Overpass response — rebuilt if missing or on refresh
@@ -166,7 +168,8 @@ final class PlacesManager {
         }
 
         if !newVisits.isEmpty {
-            recentlyVisited = newVisits   // triggers the visit banner in MapView
+            recentlyVisited = newVisits
+            visitEventId = UUID()         // always unique → onChange fires even for repeat visits
             saveVisited()
             sendBackgroundNotification(for: newVisits)
         }
