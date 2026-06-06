@@ -90,6 +90,14 @@ struct AdvancedSettingsView: View {
                 } label: {
                     Label("App Permissions", systemImage: "hand.raised")
                 }
+
+                if !placesManager.hiddenIds.isEmpty {
+                    NavigationLink {
+                        HiddenPlacesView()
+                    } label: {
+                        Label("Hidden Places (\(placesManager.hiddenIds.count))", systemImage: "eye.slash")
+                    }
+                }
             }
 
             Section {
@@ -162,6 +170,49 @@ struct AdvancedSettingsView: View {
             }
         case nil:
             EmptyView()
+        }
+    }
+}
+
+// MARK: - Hidden Places
+
+struct HiddenPlacesView: View {
+    @Environment(PlacesManager.self) private var placesManager
+
+    var body: some View {
+        let hidden = placesManager.hiddenPlaces
+        Group {
+            if hidden.isEmpty {
+                ContentUnavailableView("No Hidden Places", systemImage: "eye", description: Text("Places you hide from the map will appear here."))
+            } else {
+                List {
+                    ForEach(hidden) { place in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(place.name)
+                            Text(place.type.rawValue.capitalized + (place.county.isEmpty ? "" : " · \(place.county)"))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        .swipeActions(edge: .trailing) {
+                            Button {
+                                placesManager.toggleHidden(place)
+                            } label: {
+                                Label("Unhide", systemImage: "eye")
+                            }
+                            .tint(.green)
+                        }
+                    }
+                }
+            }
+        }
+        .navigationTitle("Hidden Places")
+        .toolbar {
+            if !hidden.isEmpty {
+                Button("Unhide All") {
+                    placesManager.unhideAll()
+                }
+                .foregroundStyle(.red)
+            }
         }
     }
 }

@@ -16,6 +16,10 @@ final class PlacesManager {
     // during the hot path in checkLocation(), which runs on every GPS update.
     var visitedIds: Set<Int64> = []
 
+    // OSM node IDs the user has explicitly hidden. Hidden places are excluded from the map
+    // and from automatic visit detection, but their data is preserved in the places list.
+    var hiddenIds: Set<Int64> = []
+
     var isLoading = false
     var loadError: String?
 
@@ -48,15 +52,18 @@ final class PlacesManager {
     private let placesURL: URL    // cached Overpass response — rebuilt if missing or on refresh
     private let visitedURL: URL   // persisted set of visited OSM IDs
     private let sessionsURL: URL  // completed session history
+    private let hiddenURL: URL    // persisted set of hidden OSM IDs
 
     init() {
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         placesURL = docs.appendingPathComponent("places.json")
         visitedURL = docs.appendingPathComponent("visited.json")
         sessionsURL = docs.appendingPathComponent("sessions.json")
+        hiddenURL = docs.appendingPathComponent("hidden.json")
 
         // Load visited IDs synchronously so the map is correct the instant it appears.
         loadVisited()
+        loadHidden()
         loadSessions()
 
         // Places are loaded async because the cache read (or network fetch) can take a moment.
@@ -75,6 +82,10 @@ final class PlacesManager {
 
     func isVisited(_ place: Place) -> Bool {
         visitedIds.contains(place.id)
+    }
+
+    func isHidden(_ place: Place) -> Bool {
+        hiddenIds.contains(place.id)
     }
 
     // MARK: - Loading places
@@ -176,6 +187,7 @@ final class PlacesManager {
         // to avoid false negatives near the edges.
         let candidates = places.filter { p in
             !visitedIds.contains(p.id) &&
+            !hiddenIds.contains(p.id) &&
             abs(p.lat - lat) < maxDeg &&
             abs(p.lon - lon) < maxDeg * 1.5
         }
@@ -223,6 +235,27 @@ final class PlacesManager {
         sessionHistory = []
         try? FileManager.default.removeItem(at: visitedURL)
         try? FileManager.default.removeItem(at: sessionsURL)
+    }
+
+    // Hides or unhides a place. Hidden places don't appear on the map or trigger auto-visits.
+    func toggleHidden(_ place: Place) {
+        if hiddenIds.contains(place.id) {
+            hiddenIds.remove(place.id)
+        } else {
+            hiddenIds.insert(place.id)
+        }
+        saveHidden()
+    }
+
+    func unhideAll() {
+        hiddenIds = []
+        try? FileManager.default.removeItem(at: hiddenURL)
+    }
+
+    // All currently hidden places, sorted by name. Used by HiddenPlacesView.
+    var hiddenPlaces: [Place] {
+        let ids = hiddenIds
+        return places.filter { ids.contains($0.id) }.sorted { $0.name < $1.name }
     }
 
     // Lets the user manually flip a place's visited status by tapping it on the map.
@@ -281,6 +314,22 @@ final class PlacesManager {
     private func saveVisited() {
         if let encoded = try? JSONEncoder().encode(visitedIds) {
             try? encoded.write(to: visitedURL)
+        }
+    }
+
+    private func loadHidden() {
+        guard let data = try? Data(contentsOf: hiddenURL),
+              let ids = try? JSONDecoder().decode(Set<Int64>.self, from: data) else { return }
+        hiddenIds = ids
+    }
+
+    private func saveHidden() {
+        let url = hiddenURL
+        let ids = hiddenIds
+        Task.detached(priority: .background) {
+            if let encoded = try? JSONEncoder().encode(ids) {
+                try? encoded.write(to: url)
+            }
         }
     }
 

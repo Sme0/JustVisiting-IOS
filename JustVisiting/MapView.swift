@@ -15,6 +15,7 @@ struct MapView: View {
     @AppStorage("filter.localOnly")     private var localOnly     = false
     @AppStorage("filter.visitedStatus") private var visitedFilter = 0  // 0=All, 1=Visited, 2=Not Visited
     @AppStorage("filter.county")        private var countyFilter  = ""
+    @AppStorage("filter.showHidden")    private var showHidden    = false
     @AppStorage("map.mapType")          private var mapType       = 0
 
     private var enabledTypes: Set<PlaceType> {
@@ -31,7 +32,7 @@ struct MapView: View {
 
     private var activeFilterCount: Int {
         let typesFiltered = (!showCities || !showTowns || !showVillages || !showHamlets) ? 1 : 0
-        return (visitedFilter != 0 ? 1 : 0) + (countyFilter.isEmpty ? 0 : 1) + typesFiltered + (localOnly ? 1 : 0)
+        return (visitedFilter != 0 ? 1 : 0) + (countyFilter.isEmpty ? 0 : 1) + typesFiltered + (localOnly ? 1 : 0) + (showHidden ? 1 : 0)
     }
 
     private var availableCounties: [String] {
@@ -56,7 +57,9 @@ struct MapView: View {
             ClusteredMapView(
                 places: placesManager.places,
                 visitedIds: placesManager.visitedIds,
+                hiddenIds: placesManager.hiddenIds,
                 enabledTypes: enabledTypes,
+                showHidden: showHidden,
                 localCenter: localOnly ? locationManager.lastLocation : nil,
                 visitedFilter: visitedFilter,
                 countyFilter: countyFilter,
@@ -160,8 +163,10 @@ struct MapView: View {
                 showVillages: $showVillages,
                 showHamlets: $showHamlets,
                 localOnly: $localOnly,
+                showHidden: $showHidden,
                 hasLocation: locationManager.lastLocation != nil,
-                availableCounties: availableCounties
+                availableCounties: availableCounties,
+                hiddenCount: placesManager.hiddenIds.count
             )
         }
 
@@ -185,15 +190,17 @@ struct MapView: View {
 
 // MARK: - Clustered map (MKMapView)
 
-// An MKAnnotation wrapper around a Place. Holds the visited flag so the delegate can
+// An MKAnnotation wrapper around a Place. Holds visited/hidden flags so the delegate can
 // colour the marker without going back to PlacesManager on every view request.
 final class PlaceAnnotation: NSObject, MKAnnotation {
     let place: Place
     var isVisited: Bool
+    var isHidden: Bool
 
-    init(place: Place, isVisited: Bool) {
+    init(place: Place, isVisited: Bool, isHidden: Bool) {
         self.place = place
         self.isVisited = isVisited
+        self.isHidden = isHidden
     }
 
     var coordinate: CLLocationCoordinate2D { place.coordinate }
@@ -206,7 +213,9 @@ final class PlaceAnnotation: NSObject, MKAnnotation {
 struct ClusteredMapView: UIViewRepresentable {
     var places: [Place]
     var visitedIds: Set<Int64>
+    var hiddenIds: Set<Int64>
     var enabledTypes: Set<PlaceType>
+    var showHidden: Bool
     var localCenter: CLLocation?
     var visitedFilter: Int   // 0=All, 1=Visited only, 2=Not visited only
     var countyFilter: String // "" = all counties
@@ -255,13 +264,31 @@ struct ClusteredMapView: UIViewRepresentable {
 
         let filterChanged = coordinator.loadedVisitedFilter != visitedFilter
             || coordinator.loadedCountyFilter != countyFilter
+        let hiddenChanged = coordinator.loadedHiddenIds != hiddenIds
+            || coordinator.loadedShowHidden != showHidden
 
         if coordinator.loadedPlacesCount != places.count
             || coordinator.loadedEnabledTypes != enabledTypes
             || localCenterMoved
-            || filterChanged {
+            || filterChanged
+            || hiddenChanged {
+            // Evict annotations whose hidden state changed so they are re-created by
+            // refreshAnnotations with the correct colour. Without this, MapKit can render
+            // stale cached views (e.g. gray) when the view was off-screen during the update.
+            if hiddenChanged {
+                let changedIds = coordinator.loadedHiddenIds.symmetricDifference(hiddenIds)
+                var toEvict: [PlaceAnnotation] = []
+                for id in changedIds {
+                    guard let annotation = coordinator.annotationsOnMap[id] else { continue }
+                    toEvict.append(annotation)
+                    coordinator.annotationsOnMap[id] = nil
+                }
+                if !toEvict.isEmpty { mapView.removeAnnotations(toEvict) }
+            }
             coordinator.loadedPlacesCount = places.count
             coordinator.loadedVisited = visitedIds
+            coordinator.loadedHiddenIds = hiddenIds
+            coordinator.loadedShowHidden = showHidden
             coordinator.loadedEnabledTypes = enabledTypes
             coordinator.loadedLocalCenter = localCenter
             coordinator.loadedVisitedFilter = visitedFilter
@@ -325,6 +352,8 @@ struct ClusteredMapView: UIViewRepresentable {
         var annotationsOnMap: [Int64: PlaceAnnotation] = [:]
         var loadedPlacesCount = -1
         var loadedVisited: Set<Int64> = []
+        var loadedHiddenIds: Set<Int64> = []
+        var loadedShowHidden: Bool = false
         var loadedEnabledTypes: Set<PlaceType> = []
         var loadedLocalCenter: CLLocation?
         var loadedVisitedFilter: Int = 0
@@ -430,7 +459,7 @@ struct ClusteredMapView: UIViewRepresentable {
                                             minLon: minLon, maxLon: maxLon,
                                             types: allowed)
 
-            // Apply visited/county filters.
+            // Apply visited/county/hidden filters.
             switch parent.visitedFilter {
             case 1: candidates = candidates.filter { parent.visitedIds.contains($0.id) }
             case 2: candidates = candidates.filter { !parent.visitedIds.contains($0.id) }
@@ -438,6 +467,9 @@ struct ClusteredMapView: UIViewRepresentable {
             }
             if !parent.countyFilter.isEmpty {
                 candidates = candidates.filter { $0.county == parent.countyFilter }
+            }
+            if !parent.showHidden {
+                candidates = candidates.filter { !parent.hiddenIds.contains($0.id) }
             }
 
             // If still too dense, keep the most significant settlements.
@@ -455,10 +487,36 @@ struct ClusteredMapView: UIViewRepresentable {
                 for id in stale.keys { annotationsOnMap[id] = nil }
             }
 
+            // Update state of annotations that are staying on the map (hidden/visited may have changed).
+            var toRecolor: [PlaceAnnotation] = []
+            for place in candidates {
+                guard let annotation = annotationsOnMap[place.id] else { continue }
+                let nowHidden = parent.hiddenIds.contains(place.id)
+                let nowVisited = parent.visitedIds.contains(place.id)
+                if annotation.isHidden != nowHidden || annotation.isVisited != nowVisited {
+                    annotation.isHidden = nowHidden
+                    annotation.isVisited = nowVisited
+                    let color: UIColor = nowHidden ? .systemGray : (nowVisited ? .systemGreen : .systemRed)
+                    if let view = mapView.view(for: annotation) as? MKMarkerAnnotationView {
+                        view.markerTintColor = color
+                    } else {
+                        toRecolor.append(annotation)
+                    }
+                }
+            }
+            if !toRecolor.isEmpty {
+                mapView.removeAnnotations(toRecolor)
+                mapView.addAnnotations(toRecolor)
+            }
+
             // Add annotations that are newly wanted.
             var toAdd: [PlaceAnnotation] = []
             for place in candidates where annotationsOnMap[place.id] == nil {
-                let annotation = PlaceAnnotation(place: place, isVisited: parent.visitedIds.contains(place.id))
+                let annotation = PlaceAnnotation(
+                    place: place,
+                    isVisited: parent.visitedIds.contains(place.id),
+                    isHidden: parent.hiddenIds.contains(place.id)
+                )
                 annotationsOnMap[place.id] = annotation
                 toAdd.append(annotation)
             }
@@ -526,7 +584,7 @@ struct ClusteredMapView: UIViewRepresentable {
 
             // This is what turns dense markers into clusters.
             view.clusteringIdentifier = "place"
-            view.markerTintColor = place.isVisited ? .systemGreen : .systemRed
+            view.markerTintColor = place.isHidden ? .systemGray : (place.isVisited ? .systemGreen : .systemRed)
             view.glyphImage = UIImage(systemName: place.place.type.icon)
             view.animatesWhenAdded = true
 
@@ -698,6 +756,7 @@ struct PlaceDetailSheet: View {
     @State private var showingDirectionsDialog = false
 
     var isVisited: Bool { placesManager.isVisited(place) }
+    var isHidden: Bool { placesManager.isHidden(place) }
 
     var body: some View {
         VStack(spacing: 16) {
@@ -746,8 +805,26 @@ struct PlaceDetailSheet: View {
             .padding(.horizontal)
 
             Spacer()
+
+            Button {
+                placesManager.toggleHidden(place)
+                dismiss()
+            } label: {
+                Label(
+                    isHidden ? "Show on Map" : "Hide from Map",
+                    systemImage: isHidden ? "eye" : "eye.slash"
+                )
+                .frame(maxWidth: .infinity)
+                .padding()
+                .background(Color.secondary.opacity(0.15))
+                .foregroundStyle(.primary)
+                .fontWeight(.semibold)
+                .clipShape(RoundedRectangle(cornerRadius: 14))
+            }
+            .padding(.horizontal)
+            .padding(.bottom, 8)
         }
-        .presentationDetents([.fraction(0.38)])
+        .presentationDetents([.medium])
         .presentationDragIndicator(.visible)
         .confirmationDialog("Get Directions to \(place.name)", isPresented: $showingDirectionsDialog, titleVisibility: .visible) {
             Button("Apple Maps") { openInAppleMaps() }
@@ -780,11 +857,13 @@ struct MapFilterSheet: View {
     @Binding var showVillages: Bool
     @Binding var showHamlets: Bool
     @Binding var localOnly: Bool
+    @Binding var showHidden: Bool
     let hasLocation: Bool
     let availableCounties: [String]
+    let hiddenCount: Int
 
     private var hasActiveFilters: Bool {
-        visitedFilter != 0 || !countyFilter.isEmpty || !showCities || !showTowns || !showVillages || !showHamlets || localOnly
+        visitedFilter != 0 || !countyFilter.isEmpty || !showCities || !showTowns || !showVillages || !showHamlets || localOnly || showHidden
     }
 
     var body: some View {
@@ -832,6 +911,16 @@ struct MapFilterSheet: View {
                     Text("Shows places within approximately 30 miles of your last known location.")
                 }
 
+                if hiddenCount > 0 {
+                    Section {
+                        Toggle(isOn: $showHidden) {
+                            Label("Show Hidden Places", systemImage: "eye.slash")
+                        }
+                    } footer: {
+                        Text("\(hiddenCount) hidden \(hiddenCount == 1 ? "place" : "places"). Shown in gray and not tracked automatically. Manage hidden places in Settings → Advanced.")
+                    }
+                }
+
                 Section {
                     Button("Reset Filters") {
                         visitedFilter = 0
@@ -841,6 +930,7 @@ struct MapFilterSheet: View {
                         showVillages = true
                         showHamlets = true
                         localOnly = false
+                        showHidden = false
                     }
                     .foregroundStyle(hasActiveFilters ? .red : .secondary)
                     .disabled(!hasActiveFilters)
