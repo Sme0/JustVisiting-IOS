@@ -7,10 +7,6 @@ struct SettingsView: View {
     @Environment(PlacesManager.self)     private var placesManager
     @Environment(CarPlayDetector.self)   private var carPlayDetector
 
-    @AppStorage("filter.showCities")     private var showCities          = true
-    @AppStorage("filter.showTowns")      private var showTowns           = true
-    @AppStorage("filter.showVillages")   private var showVillages        = true
-    @AppStorage("filter.showHamlets")    private var showHamlets         = true
     @AppStorage("filter.localOnly")      private var localOnly           = false
     @AppStorage("map.mapType")           private var mapType             = 0
     @AppStorage("appearance")            private var appearance          = 0
@@ -57,13 +53,6 @@ struct SettingsView: View {
                         Label("Hybrid",    systemImage: "map.fill").tag(2)
                     }
                     .pickerStyle(.navigationLink)
-                }
-
-                Section("Map Filters") {
-                    Toggle(isOn: $showCities)   { Label("Cities",   systemImage: PlaceType.city.icon) }
-                    Toggle(isOn: $showTowns)    { Label("Towns",    systemImage: PlaceType.town.icon) }
-                    Toggle(isOn: $showVillages) { Label("Villages", systemImage: PlaceType.village.icon) }
-                    Toggle(isOn: $showHamlets)  { Label("Hamlets",  systemImage: PlaceType.hamlet.icon) }
                 }
 
                 Section {

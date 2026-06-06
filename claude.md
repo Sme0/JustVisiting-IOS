@@ -18,29 +18,39 @@ No linter is configured. The project uses Swift 6 strict concurrency (`SWIFT_DEF
 
 ## Architecture
 
-The app has two manager classes and a view layer. There is no backend — everything is local.
+The app has three manager classes and a view layer. There is no backend — everything is local. All three managers use the `@Observable` macro (not `ObservableObject`); they are injected via `.environment()` and consumed with `@Environment(Type.self)` in views.
 
 ### Managers (created in `JustVisitingApp`, injected via `.environment()`)
 
 **`PlacesManager`** — owns all place data and visit history.
-- On init: loads visited IDs from disk synchronously, then async-loads places from the JSON cache or Overpass API.
-- `checkLocation(_:)` is the hot path — called on every GPS update. Uses a two-stage filter (bounding-box cull → `CLLocation.distance()`) to detect visits without iterating all ~60 k places each time.
-- Persists two JSON files in the app's Documents directory: `places.json` (Overpass cache) and `visited.json` (Set of visited OSM node IDs).
+- On init: loads visited IDs and session history from disk synchronously, then async-loads places from the on-disk JSON cache, the bundled `places.json` asset, or the Overpass API (in that priority order).
+- `checkLocation(_:)` is the hot path — called on every GPS update. Uses a two-stage filter (bounding-box cull → `CLLocation.distance()`) to detect visits without iterating all ~60 k places each time. On a new visit it fires a `UNUserNotificationCenter` notification when the app is backgrounded.
+- Persists three JSON files in the app's Documents directory: `places.json` (Overpass cache), `visited.json` (Set of visited OSM node IDs), `sessions.json` (completed session history).
 
 **`LocationManager`** — thin wrapper around `CLLocationManager`.
 - `distanceFilter = 30 m` and `pausesLocationUpdatesAutomatically = false` are intentional.
 - `allowsBackgroundLocationUpdates` is only set if `UIBackgroundModes: location` is present in the compiled Info.plist — checked at runtime to avoid a crash.
-- Exposes `onLocationUpdate: ((CLLocation) -> Void)?`. The closure is set in `JustVisitingApp.onAppear` to call `placesManager.checkLocation(_:)` — this keeps the two managers decoupled.
+- Exposes `onLocationUpdate: ((CLLocation) -> Void)?`. The closure is wired in `JustVisitingApp.init()` (not `.onAppear`) so it is never skipped when the scene is relaunched via CarPlay or a background location event.
+
+**`CarPlayDetector`** — detects CarPlay connection using `AVAudioSession.routeChangeNotification`. When `shouldShowDrivingMode` is true, `ContentView` replaces the tab bar with `DrivingModeView`. `userDismissedDrivingMode` suppresses the auto-switch until CarPlay disconnects and reconnects.
+
+### Sessions
+
+A `Session` (value type, `Codable`) records a start date, optional end date, and a list of `Place` values visited during that session (most-recent first). Sessions are managed by `PlacesManager`:
+- `startSession()` / `endSession()` are called from `ContentView.onChange(of: locationManager.isTracking)`.
+- Only sessions with at least one visit are saved to `sessionHistory` and persisted to `sessions.json`.
+- When a session ends with visits, `ContentView` presents `SessionSummaryView` as a sheet.
+- Completed sessions are browsable in `SessionsHistoryView` (the History tab), grouped by day.
 
 ### Data model (`Place.swift`)
 
-`PlaceType` raw values (`hamlet`, `village`, `town`, `city`) match OSM `place=` tags exactly so Codable works without custom mapping. Each type has a `radiusMeters` threshold used in visit detection.
+`PlaceType` raw values (`hamlet`, `village`, `town`, `city`) match OSM `place=` tags exactly so Codable works without custom mapping. Each type has a `radiusMeters` threshold used in visit detection (hamlet: 250 m, village: 500 m, town: 1 500 m, city: 4 500 m).
 
-`Place.id` is the OSM node ID (Int64) — stable across Overpass refreshes and used as the persistence key in `visited.json`.
+`Place.id` is the OSM node ID (Int64) — stable across Overpass refreshes and used as the persistence key in `visited.json`. `Place.county` stores the ONS county/unitary authority name (empty string for places outside UK boundaries); `decodeIfPresent` handles old cached JSON that pre-dates this field.
 
 ### View layer
 
-`ContentView` is a `TabView` with three tabs: Map, Stats, and Settings.
+`ContentView` switches between a `TabView` (normal use) and `DrivingModeView` (when CarPlay is connected). The tab bar has four tabs: Map, Stats, History, and Settings.
 
 `MapView` is the primary screen. It hosts `ClusteredMapView`, a `UIViewRepresentable` that wraps a native `MKMapView`. Using `UIViewRepresentable` is intentional: MapKit's built-in annotation clustering and view recycling scales to tens of thousands of markers far better than individual SwiftUI views would.
 
@@ -52,6 +62,10 @@ The app has two manager classes and a view layer. There is no backend — everyt
 
 **`@AppStorage` filter keys** (`filter.showCities`, `filter.showTowns`, `filter.showVillages`, `filter.showHamlets`, `filter.localOnly`) are read by both `MapView` and `SettingsView` — changes in Settings are immediately reflected on the map.
 
+`StatsView` uses the Swift Charts framework (`import Charts`) to render a donut chart of top counties by visit count. County-level stats come from `PlacesManager.countyStats`, which groups `places` by the `county` field.
+
+`DrivingModeView` is a full-screen dark UI with a large record/stop button. It shows the last three places visited in the current session and a banner notification (4 s auto-dismiss) on each new visit.
+
 ### Adding new Swift files
 
 The project uses `PBXFileSystemSynchronizedRootGroup` — any `.swift` file dropped into the `JustVisiting/` directory is automatically included in the build target. **Do not modify `project.pbxproj` to register source files.**
@@ -62,4 +76,4 @@ Location permission strings and `UIBackgroundModes = location` are declared as `
 
 ### Concurrency notes
 
-CLLocationManagerDelegate methods must be `nonisolated` (Swift 6 + default MainActor isolation conflicts with the ObjC protocol). They hop back with `Task { @MainActor in ... }`. `Task.detached` is used for background disk writes to avoid blocking the main actor.
+CLLocationManagerDelegate methods must be `nonisolated` (Swift 6 + default MainActor isolation conflicts with the ObjC protocol). They hop back with `Task { @MainActor in ... }`. `Task.detached` is used for background disk writes to avoid blocking the main actor. The same pattern applies to `CarPlayDetector.routeChanged`, which fires on a background thread via `NotificationCenter`.

@@ -30,7 +30,8 @@ struct MapView: View {
     @State private var showingFilters = false
 
     private var activeFilterCount: Int {
-        (visitedFilter != 0 ? 1 : 0) + (countyFilter.isEmpty ? 0 : 1)
+        let typesFiltered = (!showCities || !showTowns || !showVillages || !showHamlets) ? 1 : 0
+        return (visitedFilter != 0 ? 1 : 0) + (countyFilter.isEmpty ? 0 : 1) + typesFiltered
     }
 
     private var availableCounties: [String] {
@@ -154,6 +155,10 @@ struct MapView: View {
             MapFilterSheet(
                 visitedFilter: $visitedFilter,
                 countyFilter: $countyFilter,
+                showCities: $showCities,
+                showTowns: $showTowns,
+                showVillages: $showVillages,
+                showHamlets: $showHamlets,
                 availableCounties: availableCounties
             )
         }
@@ -768,11 +773,26 @@ struct PlaceDetailSheet: View {
 struct MapFilterSheet: View {
     @Binding var visitedFilter: Int
     @Binding var countyFilter: String
+    @Binding var showCities: Bool
+    @Binding var showTowns: Bool
+    @Binding var showVillages: Bool
+    @Binding var showHamlets: Bool
     let availableCounties: [String]
+
+    private var hasActiveFilters: Bool {
+        visitedFilter != 0 || !countyFilter.isEmpty || !showCities || !showTowns || !showVillages || !showHamlets
+    }
 
     var body: some View {
         NavigationStack {
             Form {
+                Section("Place Types") {
+                    Toggle(isOn: $showCities)   { Label("Cities",   systemImage: PlaceType.city.icon) }
+                    Toggle(isOn: $showTowns)    { Label("Towns",    systemImage: PlaceType.town.icon) }
+                    Toggle(isOn: $showVillages) { Label("Villages", systemImage: PlaceType.village.icon) }
+                    Toggle(isOn: $showHamlets)  { Label("Hamlets",  systemImage: PlaceType.hamlet.icon) }
+                }
+
                 Section("Status") {
                     Picker("Show", selection: $visitedFilter) {
                         Text("All").tag(0)
@@ -795,14 +815,17 @@ struct MapFilterSheet: View {
                     }
                 }
 
-                if visitedFilter != 0 || !countyFilter.isEmpty {
-                    Section {
-                        Button("Clear All Filters") {
-                            visitedFilter = 0
-                            countyFilter = ""
-                        }
-                        .foregroundStyle(.red)
+                Section {
+                    Button("Reset Filters") {
+                        visitedFilter = 0
+                        countyFilter = ""
+                        showCities = true
+                        showTowns = true
+                        showVillages = true
+                        showHamlets = true
                     }
+                    .foregroundStyle(hasActiveFilters ? .red : .secondary)
+                    .disabled(!hasActiveFilters)
                 }
             }
             .navigationTitle("Filter Map")
