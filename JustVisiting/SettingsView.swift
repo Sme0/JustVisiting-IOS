@@ -3,17 +3,11 @@ import CoreLocation
 import UserNotifications
 
 struct SettingsView: View {
-    @Environment(LocationManager.self)   private var locationManager
-    @Environment(PlacesManager.self)     private var placesManager
-    @Environment(CarPlayDetector.self)   private var carPlayDetector
+    @Environment(LocationManager.self) private var locationManager
 
-    @AppStorage("filter.localOnly")      private var localOnly           = false
     @AppStorage("map.mapType")           private var mapType             = 0
     @AppStorage("appearance")            private var appearance          = 0
     @AppStorage("tracking.autoEnabled") private var autoTrackingEnabled = false
-
-    private enum ResetAction { case clearVisits, allData }
-    @State private var pendingReset: ResetAction?
 
     var body: some View {
         NavigationStack {
@@ -33,6 +27,9 @@ struct SettingsView: View {
                             locationManager.stopAutoTracking()
                         }
                     }
+
+                } header: {
+                    Text("Tracking")
                 } footer: {
                     Text("Keeps location running in the background and sends a notification when you visit a new place. Uses more battery than manual tracking.")
                 }
@@ -46,8 +43,8 @@ struct SettingsView: View {
                     .pickerStyle(.navigationLink)
                 }
 
-                Section("Map Style") {
-                    Picker("Map Type", selection: $mapType) {
+                Section {
+                    Picker("Map Style", selection: $mapType) {
                         Label("Standard",  systemImage: "map").tag(0)
                         Label("Satellite", systemImage: "globe").tag(1)
                         Label("Hybrid",    systemImage: "map.fill").tag(2)
@@ -56,79 +53,83 @@ struct SettingsView: View {
                 }
 
                 Section {
-                    Toggle(isOn: $localOnly) {
-                        Label("Nearby places only", systemImage: "location.circle")
-                    }
-                    if localOnly && locationManager.lastLocation == nil {
-                        Label("No location available — start tracking on the Map tab first.", systemImage: "location.slash")
-                            .font(.caption)
-                            .foregroundStyle(.orange)
-                    }
-                } footer: {
-                    Text("Shows places within approximately 30 miles of your last known location.")
-                }
-
-                Section {
-                    Button {
-                        Task { await placesManager.refreshPlaces() }
+                    NavigationLink {
+                        AdvancedSettingsView()
                     } label: {
-                        Label("Refresh Place Data", systemImage: "arrow.clockwise")
+                        Label("Advanced", systemImage: "gearshape.2")
                     }
-                } footer: {
-                    Text("Place data is sourced from OpenStreetMap and cached locally. Refresh if you think data is outdated.")
-                }
-
-                Section {
-                    Button {
-                        if let url = URL(string: UIApplication.openSettingsURLString) {
-                            UIApplication.shared.open(url)
-                        }
-                    } label: {
-                        Label("Permissions", systemImage: "hand.raised")
-                    }
-                }
-
-                #if DEBUG
-                Section("Debug") {
-                    Toggle(isOn: Bindable(carPlayDetector).debugForceConnected) {
-                        Label("Simulate CarPlay", systemImage: "car")
-                    }
-                }
-                #endif
-
-                Section {
-                    Button(role: .destructive) {
-                        withAnimation(.easeInOut(duration: 0.2)) { pendingReset = .clearVisits }
-                    } label: {
-                        Label("Clear Visited Places", systemImage: "mappin.slash")
-                    }
-                } footer: {
-                    Text("Marks all places as unvisited. Your session history is kept.")
-                }
-
-                Section {
-                    Button(role: .destructive) {
-                        withAnimation(.easeInOut(duration: 0.2)) { pendingReset = .allData }
-                    } label: {
-                        Label("Reset All Data", systemImage: "trash")
-                    }
-                } footer: {
-                    Text("Permanently clears all visited places and session history. This cannot be undone.")
                 }
             }
             .navigationTitle("Settings")
-            .overlay {
-                if pendingReset != nil {
-                    Color.black.opacity(0.4)
-                        .ignoresSafeArea()
-                        .transition(.opacity)
-                        .onTapGesture {
-                            withAnimation(.easeInOut(duration: 0.2)) { pendingReset = nil }
-                        }
+        }
+    }
+}
 
-                    resetCard
-                        .transition(.scale(scale: 0.92).combined(with: .opacity))
+// MARK: - Advanced Settings
+
+struct AdvancedSettingsView: View {
+    @Environment(PlacesManager.self)   private var placesManager
+    @Environment(CarPlayDetector.self) private var carPlayDetector
+
+    private enum ResetAction { case clearVisits, allData }
+    @State private var pendingReset: ResetAction?
+
+    var body: some View {
+        Form {
+            Section("Data") {
+                Button {
+                    Task { await placesManager.refreshPlaces() }
+                } label: {
+                    Label("Refresh Place Data", systemImage: "arrow.clockwise")
                 }
+
+                Button {
+                    if let url = URL(string: UIApplication.openSettingsURLString) {
+                        UIApplication.shared.open(url)
+                    }
+                } label: {
+                    Label("App Permissions", systemImage: "hand.raised")
+                }
+            }
+
+            Section {
+                Button(role: .destructive) {
+                    withAnimation(.easeInOut(duration: 0.2)) { pendingReset = .clearVisits }
+                } label: {
+                    Label("Clear Visited Places", systemImage: "mappin.slash")
+                }
+
+                Button(role: .destructive) {
+                    withAnimation(.easeInOut(duration: 0.2)) { pendingReset = .allData }
+                } label: {
+                    Label("Reset All Data", systemImage: "trash")
+                }
+            } header: {
+                Text("Reset")
+            } footer: {
+                Text("Clear Visited marks all places as unvisited but keeps your session history. Reset All Data permanently removes everything and cannot be undone.")
+            }
+
+            #if DEBUG
+            Section("Debug") {
+                Toggle(isOn: Bindable(carPlayDetector).debugForceConnected) {
+                    Label("Simulate CarPlay", systemImage: "car")
+                }
+            }
+            #endif
+        }
+        .navigationTitle("Advanced")
+        .overlay {
+            if pendingReset != nil {
+                Color.black.opacity(0.4)
+                    .ignoresSafeArea()
+                    .transition(.opacity)
+                    .onTapGesture {
+                        withAnimation(.easeInOut(duration: 0.2)) { pendingReset = nil }
+                    }
+
+                resetCard
+                    .transition(.scale(scale: 0.92).combined(with: .opacity))
             }
         }
     }
@@ -164,6 +165,8 @@ struct SettingsView: View {
         }
     }
 }
+
+// MARK: - Reset confirmation card
 
 struct ResetConfirmationCard: View {
     let title: String

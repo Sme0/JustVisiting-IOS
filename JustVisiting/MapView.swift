@@ -31,7 +31,7 @@ struct MapView: View {
 
     private var activeFilterCount: Int {
         let typesFiltered = (!showCities || !showTowns || !showVillages || !showHamlets) ? 1 : 0
-        return (visitedFilter != 0 ? 1 : 0) + (countyFilter.isEmpty ? 0 : 1) + typesFiltered
+        return (visitedFilter != 0 ? 1 : 0) + (countyFilter.isEmpty ? 0 : 1) + typesFiltered + (localOnly ? 1 : 0)
     }
 
     private var availableCounties: [String] {
@@ -159,6 +159,8 @@ struct MapView: View {
                 showTowns: $showTowns,
                 showVillages: $showVillages,
                 showHamlets: $showHamlets,
+                localOnly: $localOnly,
+                hasLocation: locationManager.lastLocation != nil,
                 availableCounties: availableCounties
             )
         }
@@ -777,10 +779,12 @@ struct MapFilterSheet: View {
     @Binding var showTowns: Bool
     @Binding var showVillages: Bool
     @Binding var showHamlets: Bool
+    @Binding var localOnly: Bool
+    let hasLocation: Bool
     let availableCounties: [String]
 
     private var hasActiveFilters: Bool {
-        visitedFilter != 0 || !countyFilter.isEmpty || !showCities || !showTowns || !showVillages || !showHamlets
+        visitedFilter != 0 || !countyFilter.isEmpty || !showCities || !showTowns || !showVillages || !showHamlets || localOnly
     }
 
     var body: some View {
@@ -816,6 +820,19 @@ struct MapFilterSheet: View {
                 }
 
                 Section {
+                    Toggle(isOn: $localOnly) {
+                        Label("Nearby places only", systemImage: "location.circle")
+                    }
+                    if localOnly && !hasLocation {
+                        Label("No location available — start tracking on the Map tab first.", systemImage: "location.slash")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                    }
+                } footer: {
+                    Text("Shows places within approximately 30 miles of your last known location.")
+                }
+
+                Section {
                     Button("Reset Filters") {
                         visitedFilter = 0
                         countyFilter = ""
@@ -823,6 +840,7 @@ struct MapFilterSheet: View {
                         showTowns = true
                         showVillages = true
                         showHamlets = true
+                        localOnly = false
                     }
                     .foregroundStyle(hasActiveFilters ? .red : .secondary)
                     .disabled(!hasActiveFilters)
