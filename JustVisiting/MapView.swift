@@ -8,12 +8,14 @@ struct MapView: View {
     @Environment(PlacesManager.self) private var placesManager
     @Environment(LocationManager.self) private var locationManager
 
-    @AppStorage("filter.showCities")   private var showCities   = true
-    @AppStorage("filter.showTowns")    private var showTowns    = true
-    @AppStorage("filter.showVillages") private var showVillages = true
-    @AppStorage("filter.showHamlets")  private var showHamlets  = true
-    @AppStorage("filter.localOnly")    private var localOnly    = false
-    @AppStorage("map.mapType")         private var mapType      = 0
+    @AppStorage("filter.showCities")    private var showCities    = true
+    @AppStorage("filter.showTowns")     private var showTowns     = true
+    @AppStorage("filter.showVillages")  private var showVillages  = true
+    @AppStorage("filter.showHamlets")   private var showHamlets   = true
+    @AppStorage("filter.localOnly")     private var localOnly     = false
+    @AppStorage("filter.visitedStatus") private var visitedFilter = 0  // 0=All, 1=Visited, 2=Not Visited
+    @AppStorage("filter.county")        private var countyFilter  = ""
+    @AppStorage("map.mapType")          private var mapType       = 0
 
     private var enabledTypes: Set<PlaceType> {
         var types = Set<PlaceType>()
@@ -24,8 +26,16 @@ struct MapView: View {
         return types
     }
 
-    // The place the user tapped — drives the detail sheet.
     @State private var selectedPlace: Place?
+    @State private var showingFilters = false
+
+    private var activeFilterCount: Int {
+        (visitedFilter != 0 ? 1 : 0) + (countyFilter.isEmpty ? 0 : 1)
+    }
+
+    private var availableCounties: [String] {
+        Array(Set(placesManager.places.compactMap { $0.county.isEmpty ? nil : $0.county })).sorted()
+    }
 
     // Drives "recenter on me": the location button sets .follow; MapKit resets it to
     // .none as soon as the user pans, and the delegate syncs that back here.
@@ -47,6 +57,8 @@ struct MapView: View {
                 visitedIds: placesManager.visitedIds,
                 enabledTypes: enabledTypes,
                 localCenter: localOnly ? locationManager.lastLocation : nil,
+                visitedFilter: visitedFilter,
+                countyFilter: countyFilter,
                 mapType: mapType,
                 selectedPlace: $selectedPlace,
                 userTrackingMode: $userTrackingMode
@@ -87,6 +99,29 @@ struct MapView: View {
                 HStack(alignment: .center, spacing: 12) {
                     Spacer()
 
+                    Button {
+                        showingFilters = true
+                    } label: {
+                        ZStack(alignment: .topTrailing) {
+                            Image(systemName: "line.3.horizontal.decrease.circle")
+                                .foregroundStyle(.blue)
+                                .frame(width: 50, height: 50)
+                                .background(.regularMaterial, in: Circle())
+                                .shadow(radius: 4)
+                            if activeFilterCount > 0 {
+                                Circle()
+                                    .fill(.red)
+                                    .frame(width: 16, height: 16)
+                                    .overlay(
+                                        Text("\(activeFilterCount)")
+                                            .font(.system(size: 10, weight: .bold))
+                                            .foregroundStyle(.white)
+                                    )
+                                    .offset(x: 4, y: -4)
+                            }
+                        }
+                    }
+
                     TrackingButton(isTracking: locationManager.isTracking) {
                         if locationManager.isTracking {
                             locationManager.stopTracking()
@@ -112,9 +147,15 @@ struct MapView: View {
             }
         }
 
-        // Tapping an annotation opens this sheet.
         .sheet(item: $selectedPlace) { place in
             PlaceDetailSheet(place: place)
+        }
+        .sheet(isPresented: $showingFilters) {
+            MapFilterSheet(
+                visitedFilter: $visitedFilter,
+                countyFilter: $countyFilter,
+                availableCounties: availableCounties
+            )
         }
 
         // Show the visit banner whenever PlacesManager reports new visits.
@@ -160,6 +201,8 @@ struct ClusteredMapView: UIViewRepresentable {
     var visitedIds: Set<Int64>
     var enabledTypes: Set<PlaceType>
     var localCenter: CLLocation?
+    var visitedFilter: Int   // 0=All, 1=Visited only, 2=Not visited only
+    var countyFilter: String // "" = all counties
     var mapType: Int
     @Binding var selectedPlace: Place?
     @Binding var userTrackingMode: MKUserTrackingMode
@@ -179,6 +222,11 @@ struct ClusteredMapView: UIViewRepresentable {
             span: MKCoordinateSpan(latitudeDelta: 8, longitudeDelta: 8)
         )
         mapView.setRegion(region, animated: false)
+
+        // Push the legal attribution label above the bottom control bar.
+        // The bar is ~70 pt (50 pt buttons + 8 pt top pad + 12 pt bottom pad).
+        mapView.layoutMargins.bottom = 70
+
         return mapView
     }
 
@@ -198,43 +246,50 @@ struct ClusteredMapView: UIViewRepresentable {
             }
         }()
 
+        let filterChanged = coordinator.loadedVisitedFilter != visitedFilter
+            || coordinator.loadedCountyFilter != countyFilter
+
         if coordinator.loadedPlacesCount != places.count
             || coordinator.loadedEnabledTypes != enabledTypes
-            || localCenterMoved {
+            || localCenterMoved
+            || filterChanged {
             coordinator.loadedPlacesCount = places.count
             coordinator.loadedVisited = visitedIds
             coordinator.loadedEnabledTypes = enabledTypes
             coordinator.loadedLocalCenter = localCenter
+            coordinator.loadedVisitedFilter = visitedFilter
+            coordinator.loadedCountyFilter = countyFilter
             coordinator.refreshAnnotations(on: mapView)
         } else if coordinator.loadedVisited != visitedIds {
-            // Visited set changed (manual toggle or a new GPS visit): recolour only the
-            // affected markers that are currently on the map.
-            let changed = coordinator.loadedVisited.symmetricDifference(visitedIds)
-            var toRefresh: [PlaceAnnotation] = []
-            for id in changed {
-                guard let annotation = coordinator.annotationsOnMap[id] else { continue }
-                annotation.isVisited = visitedIds.contains(id)
-                if let view = mapView.view(for: annotation) as? MKMarkerAnnotationView {
-                    view.markerTintColor = annotation.isVisited ? .systemGreen : .systemRed
-                } else {
-                    // View isn't live (clustered or off-screen) — remove and re-add so
-                    // MapKit calls viewFor again with the updated isVisited state.
-                    toRefresh.append(annotation)
+            if visitedFilter != 0 {
+                // Visited filter is active: which markers appear depends on visited state,
+                // so a membership change requires a full refresh rather than just recoloring.
+                coordinator.loadedVisited = visitedIds
+                coordinator.refreshAnnotations(on: mapView)
+            } else {
+                // No visited filter: recolour only the affected markers on the map.
+                let changed = coordinator.loadedVisited.symmetricDifference(visitedIds)
+                var toRefresh: [PlaceAnnotation] = []
+                for id in changed {
+                    guard let annotation = coordinator.annotationsOnMap[id] else { continue }
+                    annotation.isVisited = visitedIds.contains(id)
+                    if let view = mapView.view(for: annotation) as? MKMarkerAnnotationView {
+                        view.markerTintColor = annotation.isVisited ? .systemGreen : .systemRed
+                    } else {
+                        toRefresh.append(annotation)
+                    }
                 }
-            }
-            if !toRefresh.isEmpty {
-                mapView.removeAnnotations(toRefresh)
-                mapView.addAnnotations(toRefresh)
-            }
-            coordinator.loadedVisited = visitedIds
+                if !toRefresh.isEmpty {
+                    mapView.removeAnnotations(toRefresh)
+                    mapView.addAnnotations(toRefresh)
+                }
+                coordinator.loadedVisited = visitedIds
 
-            // On a mass reset, clustered/recycled views won't be reached by the loop above.
-            // Remove and re-add all on-map annotations so MapKit calls viewFor again with
-            // the freshly-cleared isVisited flags.
-            if visitedIds.isEmpty {
-                let all = Array(coordinator.annotationsOnMap.values)
-                mapView.removeAnnotations(all)
-                mapView.addAnnotations(all)
+                if visitedIds.isEmpty {
+                    let all = Array(coordinator.annotationsOnMap.values)
+                    mapView.removeAnnotations(all)
+                    mapView.addAnnotations(all)
+                }
             }
         }
 
@@ -265,6 +320,8 @@ struct ClusteredMapView: UIViewRepresentable {
         var loadedVisited: Set<Int64> = []
         var loadedEnabledTypes: Set<PlaceType> = []
         var loadedLocalCenter: CLLocation?
+        var loadedVisitedFilter: Int = 0
+        var loadedCountyFilter: String = ""
         private var pendingRefresh: DispatchWorkItem?
         var radiusOverlay: MKCircle?
 
@@ -366,6 +423,16 @@ struct ClusteredMapView: UIViewRepresentable {
                                             minLon: minLon, maxLon: maxLon,
                                             types: allowed)
 
+            // Apply visited/county filters.
+            switch parent.visitedFilter {
+            case 1: candidates = candidates.filter { parent.visitedIds.contains($0.id) }
+            case 2: candidates = candidates.filter { !parent.visitedIds.contains($0.id) }
+            default: break
+            }
+            if !parent.countyFilter.isEmpty {
+                candidates = candidates.filter { $0.county == parent.countyFilter }
+            }
+
             // If still too dense, keep the most significant settlements.
             if candidates.count > Self.maxAnnotations {
                 candidates.sort { rank($0.type) > rank($1.type) }
@@ -424,9 +491,12 @@ struct ClusteredMapView: UIViewRepresentable {
                 let maxLat = coords.map(\.latitude).max() ?? 0
                 let minLon = coords.map(\.longitude).min() ?? 0
                 let maxLon = coords.map(\.longitude).max() ?? 0
-                let placesInArea = placesInBounds(minLat: minLat, maxLat: maxLat,
+                var placesInArea = placesInBounds(minLat: minLat, maxLat: maxLat,
                                                   minLon: minLon, maxLon: maxLon,
                                                   types: parent.enabledTypes)
+                if !parent.countyFilter.isEmpty {
+                    placesInArea = placesInArea.filter { $0.county == parent.countyFilter }
+                }
                 let total = placesInArea.count
                 let visited = placesInArea.filter { parent.visitedIds.contains($0.id) }.count
                 let fraction = total > 0 ? Double(visited) / Double(total) : 0
@@ -690,5 +760,104 @@ struct PlaceDetailSheet: View {
         UIApplication.shared.open(url) { success in
             if !success { openInAppleMaps() }
         }
+    }
+}
+
+// MARK: - Map Filter Sheet
+
+struct MapFilterSheet: View {
+    @Binding var visitedFilter: Int
+    @Binding var countyFilter: String
+    let availableCounties: [String]
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Status") {
+                    Picker("Show", selection: $visitedFilter) {
+                        Text("All").tag(0)
+                        Text("Visited").tag(1)
+                        Text("Not Visited").tag(2)
+                    }
+                    .pickerStyle(.segmented)
+                }
+
+                Section("County") {
+                    NavigationLink {
+                        CountyPickerView(selection: $countyFilter, counties: availableCounties)
+                    } label: {
+                        HStack {
+                            Text("County")
+                            Spacer()
+                            Text(countyFilter.isEmpty ? "All" : countyFilter)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+
+                if visitedFilter != 0 || !countyFilter.isEmpty {
+                    Section {
+                        Button("Clear All Filters") {
+                            visitedFilter = 0
+                            countyFilter = ""
+                        }
+                        .foregroundStyle(.red)
+                    }
+                }
+            }
+            .navigationTitle("Filter Map")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+    }
+}
+
+struct CountyPickerView: View {
+    @Binding var selection: String
+    let counties: [String]
+    @State private var searchText = ""
+    @Environment(\.dismiss) private var dismiss
+
+    private var filtered: [String] {
+        searchText.isEmpty ? counties : counties.filter { $0.localizedCaseInsensitiveContains(searchText) }
+    }
+
+    var body: some View {
+        List {
+            Button {
+                selection = ""
+                dismiss()
+            } label: {
+                HStack {
+                    Text("All Counties")
+                        .foregroundStyle(.primary)
+                    Spacer()
+                    if selection.isEmpty {
+                        Image(systemName: "checkmark")
+                            .foregroundStyle(.blue)
+                    }
+                }
+            }
+
+            ForEach(filtered, id: \.self) { county in
+                Button {
+                    selection = county
+                    dismiss()
+                } label: {
+                    HStack {
+                        Text(county)
+                            .foregroundStyle(.primary)
+                        Spacer()
+                        if selection == county {
+                            Image(systemName: "checkmark")
+                                .foregroundStyle(.blue)
+                        }
+                    }
+                }
+            }
+        }
+        .searchable(text: $searchText, prompt: "Search counties")
+        .navigationTitle("County")
     }
 }
