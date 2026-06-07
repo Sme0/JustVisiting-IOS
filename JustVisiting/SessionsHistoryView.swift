@@ -100,11 +100,14 @@ private struct SessionRow: View {
     }
 
     private var placeSummary: String {
-        let count = session.places.count
-        guard count > 0 else { return "No places" }
-        // Show the first place name + overflow count if more than one
+        let total = session.places.count
+        guard total > 0 else { return "No places" }
+        if session.revisitCount > 0 {
+            let newCount = session.newPlaceCount
+            return "\(newCount) new · \(session.revisitCount) revisited"
+        }
         let first = session.places[0].name
-        return count == 1 ? first : "\(first) +\(count - 1) more"
+        return total == 1 ? first : "\(first) +\(total - 1) more"
     }
 
     private func formattedDuration(_ interval: TimeInterval) -> String {

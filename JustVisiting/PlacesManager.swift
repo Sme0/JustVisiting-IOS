@@ -23,10 +23,11 @@ final class PlacesManager {
     var isLoading = false
     var loadError: String?
 
-    // Set when a location update triggers new visits; observed by MapView to show the banner.
+    // Set when a location update triggers visits; observed by views to show banners.
     var recentlyVisited: [Place] = []
-    // Incremented on every new visit so onChange fires even when the same place is
-    // re-visited after being un-marked (array equality would suppress the notification).
+    // Subset of recentlyVisited that are genuinely new (not previously visited).
+    private(set) var recentlyNewPlaceIds: Set<Int64> = []
+    // Incremented on every visit event so onChange fires even for repeat visits.
     private(set) var visitEventId: UUID = UUID()
 
     // The tracking session in progress, or the most recently completed one.
@@ -182,31 +183,44 @@ final class PlacesManager {
         // so dividing converts metres to degrees for the bounding-box filter.
         let maxDeg = PlaceType.city.radiusMeters / 111_000.0
 
+        // Places already recorded this session — each place is recorded at most once per session.
+        let sessionPlaceIds = Set(currentSession?.places.map(\.id) ?? [])
+
         // Stage 1: throw away anything clearly outside the largest possible radius.
         // Longitude degrees are narrower at higher latitudes, so we widen that axis by 1.5×
         // to avoid false negatives near the edges.
+        // Unlike before, we include already-visited places so revisits appear in the session.
         let candidates = places.filter { p in
-            !visitedIds.contains(p.id) &&
             !hiddenIds.contains(p.id) &&
+            !sessionPlaceIds.contains(p.id) &&
             abs(p.lat - lat) < maxDeg &&
             abs(p.lon - lon) < maxDeg * 1.5
         }
 
         // Stage 2: precise distance check using each place's actual radius threshold.
         var newVisits: [Place] = []
+        var revisits: [Place] = []
         for place in candidates {
             if location.distance(from: place.clLocation) <= place.type.radiusMeters {
-                visitedIds.insert(place.id)
-                newVisits.append(place)
+                if visitedIds.contains(place.id) {
+                    revisits.append(place)
+                } else {
+                    visitedIds.insert(place.id)
+                    newVisits.append(place)
+                }
             }
         }
 
-        if !newVisits.isEmpty {
-            recentlyVisited = newVisits
-            visitEventId = UUID()         // always unique → onChange fires even for repeat visits
-            currentSession?.record(newVisits)
-            saveVisited()
-            sendBackgroundNotification(for: newVisits)
+        let allVisited = newVisits + revisits
+        if !allVisited.isEmpty {
+            recentlyVisited = allVisited
+            recentlyNewPlaceIds = Set(newVisits.map(\.id))
+            visitEventId = UUID()
+            currentSession?.record(newPlaces: newVisits, revisitedPlaces: revisits)
+            if !newVisits.isEmpty {
+                saveVisited()
+                sendBackgroundNotification(for: newVisits)
+            }
         }
     }
 

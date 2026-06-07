@@ -7,6 +7,7 @@ struct DrivingModeView: View {
 
     @State private var showingVisitBanner = false
     @State private var visitBannerName = ""
+    @State private var visitBannerIsNew = false
 
     var body: some View {
         ZStack {
@@ -55,9 +56,10 @@ struct DrivingModeView: View {
                             .frame(maxWidth: .infinity, alignment: .center)
                     } else {
                         ForEach(Array((placesManager.currentSession?.places ?? []).prefix(3))) { place in
+                            let isNew = placesManager.currentSession?.isNewVisit(place) ?? true
                             HStack(spacing: 12) {
-                                Image(systemName: "checkmark.circle.fill")
-                                    .foregroundStyle(.green)
+                                Image(systemName: isNew ? "star.fill" : "checkmark.circle.fill")
+                                    .foregroundStyle(isNew ? Color.yellow : Color.green)
                                 Text(place.name)
                                     .fontWeight(.semibold)
                                     .foregroundStyle(.white)
@@ -74,13 +76,13 @@ struct DrivingModeView: View {
                 .padding(.bottom, 12)
 
                 if showingVisitBanner {
-                    Text("Visited \(visitBannerName)!")
+                    Text(visitBannerIsNew ? "Discovered \(visitBannerName)!" : "Back in \(visitBannerName)!")
                         .font(.title3)
                         .fontWeight(.bold)
                         .foregroundStyle(.white)
                         .padding(.horizontal, 24)
                         .padding(.vertical, 12)
-                        .background(.green.opacity(0.25), in: Capsule())
+                        .background(visitBannerIsNew ? Color.yellow.opacity(0.30) : Color.green.opacity(0.25), in: Capsule())
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                         .padding(.bottom, 8)
                 }
@@ -103,7 +105,12 @@ struct DrivingModeView: View {
         .onChange(of: placesManager.visitEventId) {
             guard !placesManager.recentlyVisited.isEmpty else { return }
 
-            let first = placesManager.recentlyVisited[0]
+            let hasNew = !placesManager.recentlyNewPlaceIds.isEmpty
+            // Prefer leading with a new discovery if one exists
+            let first = hasNew
+                ? (placesManager.recentlyVisited.first { placesManager.recentlyNewPlaceIds.contains($0.id) } ?? placesManager.recentlyVisited[0])
+                : placesManager.recentlyVisited[0]
+            visitBannerIsNew = hasNew
             visitBannerName = placesManager.recentlyVisited.count == 1
                 ? first.name
                 : "\(first.name) and \(placesManager.recentlyVisited.count - 1) more"

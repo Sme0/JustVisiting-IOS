@@ -63,11 +63,18 @@ struct SessionSummaryView: View {
     }
 
     private var statCards: some View {
-        HStack(spacing: 12) {
-            StatCard(
-                value: "\(session.places.count)",
-                label: session.places.count == 1 ? "Place Visited" : "Places Visited"
-            )
+        VStack(spacing: 12) {
+            HStack(spacing: 12) {
+                StatCard(
+                    value: "\(session.places.count)",
+                    label: session.places.count == 1 ? "Place Visited" : "Places Visited"
+                )
+                StatCard(
+                    value: "\(session.newPlaceCount)",
+                    label: session.newPlaceCount == 1 ? "New Discovery" : "New Discoveries",
+                    valueColor: .yellow
+                )
+            }
             if let duration = session.duration {
                 StatCard(value: formattedDuration(duration), label: "Duration")
             }
@@ -107,9 +114,10 @@ struct SessionSummaryView: View {
             VStack(spacing: 0) {
                 ForEach(session.places.indices, id: \.self) { index in
                     let place = session.places[index]
+                    let isNew = session.isNewVisit(place)
                     HStack(spacing: 12) {
-                        Image(systemName: place.type.icon)
-                            .foregroundStyle(place.type.summaryColor)
+                        Image(systemName: isNew ? "star.fill" : place.type.icon)
+                            .foregroundStyle(isNew ? Color.yellow : place.type.summaryColor)
                             .frame(width: 22)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(place.name)
@@ -169,11 +177,13 @@ struct SessionSummaryView: View {
 private struct StatCard: View {
     let value: String
     let label: String
+    var valueColor: Color = .primary
 
     var body: some View {
         VStack(spacing: 4) {
             Text(value)
                 .font(.title.weight(.bold))
+                .foregroundStyle(valueColor)
                 .minimumScaleFactor(0.6)
                 .lineLimit(1)
             Text(label)
