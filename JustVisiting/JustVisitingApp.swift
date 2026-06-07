@@ -8,6 +8,7 @@ struct JustVisitingApp: App {
     @State private var placesManager: PlacesManager
     @State private var locationManager: LocationManager
     @State private var carPlayDetector = CarPlayDetector()
+    @State private var achievementsManager = AchievementsManager()
 
     init() {
         let placesManager = PlacesManager()
@@ -36,6 +37,7 @@ struct JustVisitingApp: App {
                 .environment(placesManager)
                 .environment(locationManager)
                 .environment(carPlayDetector)
+                .environment(achievementsManager)
         }
     }
 }

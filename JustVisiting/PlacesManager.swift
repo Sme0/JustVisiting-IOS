@@ -247,8 +247,10 @@ final class PlacesManager {
     func resetProgress() {
         visitedIds = []
         sessionHistory = []
+        hiddenIds = []
         try? FileManager.default.removeItem(at: visitedURL)
         try? FileManager.default.removeItem(at: sessionsURL)
+        try? FileManager.default.removeItem(at: hiddenURL)
     }
 
     // Hides or unhides a place. Hidden places don't appear on the map or trigger auto-visits.

@@ -68,8 +68,9 @@ struct SettingsView: View {
 // MARK: - Advanced Settings
 
 struct AdvancedSettingsView: View {
-    @Environment(PlacesManager.self)   private var placesManager
-    @Environment(CarPlayDetector.self) private var carPlayDetector
+    @Environment(PlacesManager.self)       private var placesManager
+    @Environment(AchievementsManager.self) private var achievementsManager
+    @Environment(CarPlayDetector.self)     private var carPlayDetector
 
     private enum ResetAction { case clearVisits, allData }
     @State private var pendingReset: ResetAction?
@@ -164,6 +165,7 @@ struct AdvancedSettingsView: View {
                 confirmLabel: "Reset All Data"
             ) {
                 placesManager.resetProgress()
+                achievementsManager.reset()
                 withAnimation(.easeInOut(duration: 0.2)) { pendingReset = nil }
             } onCancel: {
                 withAnimation(.easeInOut(duration: 0.2)) { pendingReset = nil }
